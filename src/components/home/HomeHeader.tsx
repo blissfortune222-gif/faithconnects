@@ -1,139 +1,143 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
-import {
-    Image,
-    Modal,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from "react-native";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 type HomeHeaderProps = {
-  name?: string;
-  profileImage?: string;
   onNotificationPress?: () => void;
+  onSearchPress?: () => void;
 };
 
 export default function HomeHeader({
-  name = "Fortune",
-  profileImage = "https://i.pravatar.cc/300?img=12",
   onNotificationPress,
+  onSearchPress,
 }: HomeHeaderProps) {
-  const [viewerVisible, setViewerVisible] = useState(false);
-
   return (
-    <>
-      <View style={styles.header}>
-        <View style={styles.leftSection}>
-          <TouchableOpacity onPress={() => setViewerVisible(true)}>
-            <Image source={{ uri: profileImage }} style={styles.avatar} />
-          </TouchableOpacity>
-
-          <View style={{ marginLeft: 14 }}>
-            <Text style={styles.greeting}>Welcome Back</Text>
-            <Text style={styles.name}>Hi, {name} 👋</Text>
-          </View>
-        </View>
-
-        <TouchableOpacity
-          style={styles.notificationButton}
-          onPress={onNotificationPress}
-        >
-          <Ionicons name="notifications-outline" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-      </View>
-
-      <Modal
-        visible={viewerVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setViewerVisible(false)}
-      >
-        <View style={styles.modal}>
-          <TouchableOpacity
-            style={styles.closeButton}
-            onPress={() => setViewerVisible(false)}
-          >
-            <Ionicons name="close" size={30} color="#FFFFFF" />
-          </TouchableOpacity>
-
-          <Image
-            source={{ uri: profileImage }}
-            resizeMode="contain"
-            style={styles.fullImage}
+    <View style={styles.header}>
+      {/* BRAND LOGO AND NAME */}
+      <View style={styles.brandSection}>
+        <View style={styles.logoContainer}>
+          <Ionicons name="heart" size={39} color="#FF4F9A" />
+          <Ionicons
+            name="heart-outline"
+            size={23}
+            color="#A855F7"
+            style={styles.innerHeart}
           />
         </View>
-      </Modal>
-    </>
+
+        <View style={styles.brandText}>
+          <Text style={styles.brandName}>
+            Faith<Text style={styles.brandAccent}>Connects</Text>
+          </Text>
+
+          {/* <Text style={styles.tagline}>Connect • Share • Belong</Text> */}
+        </View>
+      </View>
+
+      {/* ACTION BUTTONS */}
+      <View style={styles.actions}>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={onSearchPress}
+          activeOpacity={0.7}
+          accessibilityLabel="Search">
+          <Ionicons name="search" size={25} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 }
+
+const PRIMARY = "#FF4F9A";
 
 const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 24,
-    paddingTop: 12,
-    paddingBottom: 20,
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 8,
   },
 
-  leftSection: {
+  brandSection: {
     flexDirection: "row",
     alignItems: "center",
+    flex: 1,
+    minWidth: 0,
   },
 
-  avatar: {
-    width: 55,
-    height: 55,
-    borderRadius: 27.5,
+  logoContainer: {
+    width: 40,
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+    marginRight: 3,
   },
 
-  greeting: {
-    color: "#8A8A8A",
-    fontSize: 13,
-    fontWeight: "500",
+  innerHeart: {
+    position: "absolute",
+    top: 10,
+    left: 10,
   },
 
-  name: {
+  brandText: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  brandName: {
+    color: "#FFFFFF",
+    fontSize: 19,
+    fontWeight: "800",
+    letterSpacing: -0.8,
+  },
+
+  brandAccent: {
+    color: PRIMARY,
+  },
+
+  tagline: {
+    color: "#B9A9D2",
+    fontSize: 11,
     marginTop: 2,
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#FAFAFA",
+    letterSpacing: 0.3,
   },
 
-  notificationButton: {
+  actions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginLeft: 8,
+  },
+
+  actionButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#1F1F1F",
+    backgroundColor: "#1B1030",
+    borderWidth: 1,
+    borderColor: "#49305F",
     justifyContent: "center",
     alignItems: "center",
+    position: "relative",
   },
 
-  modal: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.97)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  fullImage: {
-    width: "100%",
-    height: "80%",
-  },
-
-  closeButton: {
+  notificationBadge: {
     position: "absolute",
-    top: 60,
-    right: 25,
-    width: 45,
-    height: 45,
-    borderRadius: 22.5,
-    backgroundColor: "rgba(255,255,255,0.12)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 100,
+    top: 9,
+    right: 10,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: PRIMARY,
+    borderWidth: 1,
+    borderColor: "#1B1030",
+  },
+
+  notificationDot: {
+    flex: 1,
+    borderRadius: 5,
+    backgroundColor: PRIMARY,
   },
 });

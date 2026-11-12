@@ -8,26 +8,41 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarShowLabel: false,
+        tabBarShowLabel: true,
+
         tabBarActiveTintColor: PRIMARY,
-        tabBarInactiveTintColor: "#777",
+        tabBarInactiveTintColor: "#8A8A8A",
+
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontWeight: "600",
+          marginTop: 1,
+          letterSpacing: 0.2,
+        },
+
+        tabBarItemStyle: {
+          paddingVertical: 4,
+        },
+
         tabBarStyle: {
           backgroundColor: "#121212",
-          borderTopWidth: 0,
-          height: 70,
-          paddingTop: 10,
-          paddingBottom: 10,
+          borderTopColor: "#252525",
+          borderTopWidth: 1,
+          height: 76,
+          paddingTop: 8,
+          paddingBottom: 8,
+          elevation: 0,
+          shadowOpacity: 0,
         },
-      }}
-    >
+      }}>
       <Tabs.Screen
         name="Main/mainPage"
         options={{
-          title: "main",
+          title: "Home",
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "home" : "home-outline"}
-              size={26}
+              size={23}
               color={color}
             />
           ),
@@ -41,7 +56,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "search" : "search-outline"}
-              size={26}
+              size={23}
               color={color}
             />
           ),
@@ -55,7 +70,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "chatbubble" : "chatbubble-outline"}
-              size={26}
+              size={23}
               color={color}
             />
           ),
@@ -65,14 +80,9 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="notifications"
         options={{
-          title: "Notifications",
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "notifications" : "notifications-outline"}
-              size={26}
-              color={color}
-            />
-          ),
+          href: null,
+          headerShown: false,
+          tabBarStyle: { display: "none" },
         }}
       />
 
@@ -83,10 +93,20 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "person" : "person-outline"}
-              size={26}
+              size={23}
               color={color}
             />
           ),
+        }}
+      />
+
+      {/* Selected user's profile - hidden from bottom navigation */}
+      <Tabs.Screen
+        name="user/[userId]"
+        options={{
+          href: null,
+          headerShown: false,
+          tabBarStyle: { display: "none" },
         }}
       />
     </Tabs>

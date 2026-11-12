@@ -7,15 +7,9 @@ export default function OnboardingScreen() {
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
+        {/* <TouchableOpacity onPress={() => router.back()}>
           <Text style={styles.back}>←</Text>
-        </TouchableOpacity>
-
-        <View style={styles.dots}>
-          <View style={[styles.dot, styles.activeDot]} />
-          <View style={styles.dot} />
-          <View style={styles.dot} />
-        </View>
+        </TouchableOpacity> */}
 
         {/* Empty view to keep dots centered */}
         <View style={{ width: 30 }} />

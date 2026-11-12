@@ -1,78 +1,69 @@
-import DailyVerse from "@/components/home/DailyVerse";
 import Feed from "@/components/home/Feed";
 import HomeHeader from "@/components/home/HomeHeader";
 import Trending from "@/components/home/Trending";
-import { FlatList, StyleSheet } from "react-native";
+import { useEffect, useState } from "react";
+import { FlatList, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-const posts = [
+
+const bibleVerses = [
   {
-    id: "1",
-    user: "Sophia",
-    avatar: "https://i.pravatar.cc/100?img=32",
-    image: "https://picsum.photos/600/800?random=1",
-    caption: "God's timing is always perfect. ❤️🙏",
-    likes: 124,
-    comments: 18,
-    time: "2 mins ago",
+    verse:
+      "Be strong and courageous. Do not be afraid or discouraged, for the Lord your God will be with you wherever you go.",
+    reference: "Joshua 1:9",
   },
   {
-    id: "2",
-    user: "Emma",
-    avatar: "https://i.pravatar.cc/100?img=47",
-    image: "https://picsum.photos/600/800?random=2",
-    caption: "Beautiful sunset after church today ✨",
-    likes: 98,
-    comments: 12,
-    time: "15 mins ago",
+    verse: "I can do all things through Christ who strengthens me.",
+    reference: "Philippians 4:13",
   },
   {
-    id: "3",
-    user: "Grace",
-    avatar: "https://i.pravatar.cc/100?img=44",
-    image: "https://picsum.photos/600/800?random=3",
-    caption: "Feeling blessed today 💕",
-    likes: 211,
-    comments: 31,
-    time: "30 mins ago",
+    verse: "The Lord is my shepherd; I shall not want.",
+    reference: "Psalm 23:1",
   },
   {
-    id: "4",
-    user: "Olivia",
-    avatar: "https://i.pravatar.cc/100?img=48",
-    image: "https://picsum.photos/600/800?random=4",
-    caption: "Sunday vibes 🌸",
-    likes: 145,
-    comments: 20,
-    time: "1 hr ago",
+    verse:
+      "Trust in the Lord with all your heart and lean not on your own understanding.",
+    reference: "Proverbs 3:5",
+  },
+  {
+    verse:
+      "For I know the plans I have for you, declares the Lord, plans to prosper you and not to harm you, plans to give you hope and a future.",
+    reference: "Jeremiah 29:11",
   },
 ];
-export default function HomeScreen() {
+
+type HomeScreenProps = {
+  currentUserId?: string;
+};
+
+export default function HomeScreen({ currentUserId }: HomeScreenProps) {
+  const [dailyVerse, setDailyVerse] = useState(bibleVerses[0]);
+
+  useEffect(() => {
+    const randomIndex = Math.floor(Math.random() * bibleVerses.length);
+    setDailyVerse(bibleVerses[randomIndex]);
+  }, []);
+
   return (
     <SafeAreaView edges={["top"]} style={styles.container}>
-      {/* Fixed Header */}
-      <HomeHeader
-        name="Fortune"
-        onNotificationPress={() => console.log("Notifications")}
-      />
+      <HomeHeader onNotificationPress={() => console.log("Notifications")} />
 
-      {/* Scrollable Content */}
       <FlatList
-        data={posts}
+        data={[{ id: "main-feed" }]}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
-          <>
-            <DailyVerse
-              verse="Be strong and courageous. Do not be afraid or discouraged, for the Lord your God will be with you wherever you go."
-              reference="Joshua 1:9"
-              onPress={() => console.log("Read Verse")}
-            />
+          <View>
+            {/* <DailyVerse
+              verse={dailyVerse.verse}
+              reference={dailyVerse.reference}
+              onPress={() => console.log("Read Verse:", dailyVerse.reference)}
+            /> */}
 
             <Trending />
-          </>
+          </View>
         }
-        renderItem={({ item }) => <Feed />}
+        renderItem={() => <Feed currentUserId={currentUserId} />}
       />
     </SafeAreaView>
   );
@@ -83,7 +74,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#121212",
   },
-
   listContent: {
     paddingBottom: 40,
   },

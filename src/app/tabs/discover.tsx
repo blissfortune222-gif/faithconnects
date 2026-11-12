@@ -1,7 +1,13 @@
+import { gql, useLazyQuery } from "@apollo/client";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   Image,
+  Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
@@ -9,117 +15,433 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const people = [
-  {
-    id: "1",
-    name: "Sophia",
-    age: 22,
-    distance: "1.2 km",
-    image: "https://i.pravatar.cc/400?img=32",
-    online: true,
-  },
-  {
-    id: "2",
-    name: "Emma",
-    age: 24,
-    distance: "2.8 km",
-    image: "https://i.pravatar.cc/400?img=47",
-    online: true,
-  },
-  {
-    id: "3",
-    name: "Olivia",
-    age: 23,
-    distance: "3.1 km",
-    image: "https://i.pravatar.cc/400?img=48",
-    online: false,
-  },
-  {
-    id: "4",
-    name: "Grace",
-    age: 25,
-    distance: "4.7 km",
-    image: "https://i.pravatar.cc/400?img=44",
-    online: true,
-  },
-  {
-    id: "5",
-    name: "Sarah",
-    age: 21,
-    distance: "5.4 km",
-    image: "https://i.pravatar.cc/400?img=20",
-    online: false,
-  },
-  {
-    id: "6",
-    name: "Ella",
-    age: 22,
-    distance: "6.3 km",
-    image: "https://i.pravatar.cc/400?img=19",
-    online: true,
-  },
-];
+const PRIMARY = "#FF4F9A";
+const PAGE_SIZE = 20;
+
+type FilterType = "Discover" | "Nearby" | "Online" | "Verified";
+
+type DiscoverPerson = {
+  id: string;
+  fullName?: string;
+  username?: string;
+  age?: number;
+  location?: string;
+  profileImage?: string;
+  isOnline?: boolean;
+  isVerified?: boolean;
+};
+
+type DiscoverQueryResult = {
+  discoverNew?: DiscoverPerson[];
+  discoverNearby?: DiscoverPerson[];
+  discoverOnline?: DiscoverPerson[];
+  discoverVerified?: DiscoverPerson[];
+};
+
+const USER_FIELDS = `
+  id
+  fullName
+  username
+  age
+  location
+  profileImage
+  isOnline
+  isVerified
+`;
+
+const DISCOVER_NEW_QUERY = gql`
+  query DiscoverNew($limit: Int!, $offset: Int!) {
+    discoverNew(limit: $limit, offset: $offset) {
+      ${USER_FIELDS}
+    }
+  }
+`;
+
+const DISCOVER_NEARBY_QUERY = gql`
+  query DiscoverNearby($limit: Int!, $offset: Int!) {
+    discoverNearby(limit: $limit, offset: $offset) {
+      ${USER_FIELDS}
+    }
+  }
+`;
+
+const DISCOVER_ONLINE_QUERY = gql`
+  query DiscoverOnline($limit: Int!, $offset: Int!) {
+    discoverOnline(limit: $limit, offset: $offset) {
+      ${USER_FIELDS}
+    }
+  }
+`;
+
+const DISCOVER_VERIFIED_QUERY = gql`
+  query DiscoverVerified($limit: Int!, $offset: Int!) {
+    discoverVerified(limit: $limit, offset: $offset) {
+      ${USER_FIELDS}
+    }
+  }
+`;
 
 export default function Discover() {
+  const [activeFilter, setActiveFilter] = useState<FilterType>("Discover");
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [people, setPeople] = useState<DiscoverPerson[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const offsetRef = useRef(0);
+  const hasMoreRef = useRef(true);
+  const loadingMoreRef = useRef(false);
+  const requestIdRef = useRef(0);
+
+  const [discoverNew] = useLazyQuery<DiscoverQueryResult>(DISCOVER_NEW_QUERY, {
+    fetchPolicy: "network-only",
+  });
+
+  const [discoverNearby] = useLazyQuery<DiscoverQueryResult>(
+    DISCOVER_NEARBY_QUERY,
+    { fetchPolicy: "network-only" },
+  );
+
+  const [discoverOnline] = useLazyQuery<DiscoverQueryResult>(
+    DISCOVER_ONLINE_QUERY,
+    { fetchPolicy: "network-only" },
+  );
+
+  const [discoverVerified] = useLazyQuery<DiscoverQueryResult>(
+    DISCOVER_VERIFIED_QUERY,
+    { fetchPolicy: "network-only" },
+  );
+
+  const loadPeople = useCallback(
+    async (filter: FilterType, reset = true) => {
+      if (!reset && (!hasMoreRef.current || loadingMoreRef.current)) {
+        return;
+      }
+
+      const requestId = ++requestIdRef.current;
+      const currentOffset = reset ? 0 : offsetRef.current;
+
+      if (reset) {
+        offsetRef.current = 0;
+        hasMoreRef.current = true;
+        loadingMoreRef.current = false;
+
+        setLoading(true);
+        setLoadingMore(false);
+        setErrorMessage("");
+        setPeople([]);
+      } else {
+        loadingMoreRef.current = true;
+        setLoadingMore(true);
+      }
+
+      try {
+        const variables = {
+          limit: PAGE_SIZE,
+          offset: currentOffset,
+        };
+
+        let result: DiscoverPerson[] = [];
+
+        switch (filter) {
+          case "Discover": {
+            const response = await discoverNew({ variables });
+            result = response.data?.discoverNew ?? [];
+            break;
+          }
+
+          case "Nearby": {
+            const response = await discoverNearby({ variables });
+            result = response.data?.discoverNearby ?? [];
+            break;
+          }
+
+          case "Online": {
+            const response = await discoverOnline({ variables });
+            result = response.data?.discoverOnline ?? [];
+            break;
+          }
+
+          case "Verified": {
+            const response = await discoverVerified({ variables });
+            result = response.data?.discoverVerified ?? [];
+            break;
+          }
+        }
+
+        if (requestId !== requestIdRef.current) return;
+
+        setPeople((previous) => {
+          if (reset) return result;
+
+          const existingIds = new Set(previous.map((person) => person.id));
+
+          const newPeople = result.filter(
+            (person) => !existingIds.has(person.id),
+          );
+
+          return [...previous, ...newPeople];
+        });
+
+        offsetRef.current = currentOffset + result.length;
+        hasMoreRef.current = result.length === PAGE_SIZE;
+      } catch (error: any) {
+        if (requestId !== requestIdRef.current) return;
+
+        console.error("Discover query error:", error);
+
+        setErrorMessage(
+          error?.message || "Unable to load profiles. Please try again.",
+        );
+      } finally {
+        if (requestId === requestIdRef.current) {
+          setLoading(false);
+          setLoadingMore(false);
+          loadingMoreRef.current = false;
+        }
+      }
+    },
+    [discoverNew, discoverNearby, discoverOnline, discoverVerified],
+  );
+
+  useEffect(() => {
+    loadPeople("Discover", true);
+  }, [loadPeople]);
+
+  const handleFilterChange = (filter: FilterType) => {
+    if (filter === activeFilter) return;
+
+    setActiveFilter(filter);
+    loadPeople(filter, true);
+  };
+
+  // Navigate to the selected user's profile.
+  const openUserProfile = (userId: string) => {
+    if (!userId) return;
+
+    router.push({
+      pathname: "/user/[userId]",
+      params: {
+        userId: String(userId),
+      },
+    });
+  };
+
+  const filteredPeople = useMemo(() => {
+    const search = searchQuery.trim().toLowerCase();
+
+    if (!search) return people;
+
+    return people.filter((person) => {
+      const name = person.fullName || "";
+      const username = person.username || "";
+
+      return (
+        name.toLowerCase().includes(search) ||
+        username.toLowerCase().includes(search)
+      );
+    });
+  }, [people, searchQuery]);
+
+  const filters: FilterType[] = ["Discover", "Nearby", "Online", "Verified"];
+
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Discover</Text>
+      {/* HEADER */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.title}>Discover</Text>
+          <Text style={styles.subtitle}>Find meaningful connections</Text>
+        </View>
 
+        <Pressable style={styles.headerButton}>
+          <Ionicons name="options-outline" size={23} color="#fff" />
+        </Pressable>
+      </View>
+
+      {/* SEARCH */}
       <View style={styles.search}>
         <Ionicons name="search" size={20} color="#888" />
+
         <TextInput
           placeholder="Search people..."
           placeholderTextColor="#777"
           style={styles.input}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
         />
+
+        {searchQuery.length > 0 && (
+          <Pressable onPress={() => setSearchQuery("")}>
+            <Ionicons name="close-circle" size={19} color="#888" />
+          </Pressable>
+        )}
       </View>
 
+      {/* FILTERS */}
       <View style={styles.filters}>
-        <View style={styles.activeChip}>
-          <Text style={styles.activeText}>Nearby</Text>
-        </View>
+        {filters.map((filter) => {
+          const active = activeFilter === filter;
 
-        <View style={styles.chip}>
-          <Text style={styles.chipText}>Online</Text>
-        </View>
+          return (
+            <Pressable
+              key={filter}
+              onPress={() => handleFilterChange(filter)}
+              style={[styles.chip, active && styles.activeChip]}>
+              {filter === "Nearby" && (
+                <Ionicons
+                  name="location"
+                  size={15}
+                  color={active ? "#fff" : "#aaa"}
+                />
+              )}
 
-        <View style={styles.chip}>
-          <Text style={styles.chipText}>New</Text>
-        </View>
+              {filter === "Online" && (
+                <View
+                  style={[styles.onlineDot, active && styles.activeOnlineDot]}
+                />
+              )}
 
-        <View style={styles.chip}>
-          <Text style={styles.chipText}>Verified</Text>
-        </View>
+              {filter === "Verified" && (
+                <Ionicons
+                  name="shield-checkmark"
+                  size={15}
+                  color={active ? "#fff" : "#aaa"}
+                />
+              )}
+
+              {filter === "Discover" && (
+                <Ionicons
+                  name="compass-outline"
+                  size={16}
+                  color={active ? "#fff" : "#aaa"}
+                />
+              )}
+
+              <Text style={[styles.chipText, active && styles.activeText]}>
+                {filter}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
 
+      {/* RESULTS HEADER */}
+      <View style={styles.resultsHeader}>
+        <Text style={styles.resultsTitle}>
+          {activeFilter === "Discover"
+            ? "Discover people"
+            : activeFilter === "Nearby"
+              ? "People nearby"
+              : activeFilter === "Online"
+                ? "Currently online"
+                : "Verified members"}
+        </Text>
+
+        <Text style={styles.resultsCount}>{filteredPeople.length} people</Text>
+      </View>
+
+      {/* PEOPLE GRID */}
       <FlatList
-        data={people}
+        data={filteredPeople}
         numColumns={2}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
-        columnWrapperStyle={{ justifyContent: "space-between" }}
-        contentContainerStyle={{ paddingBottom: 30 }}
+        columnWrapperStyle={styles.columnWrapper}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={() => loadPeople(activeFilter, true)}
+            tintColor={PRIMARY}
+            colors={[PRIMARY]}
+          />
+        }
+        onEndReached={() => {
+          if (!loading && !loadingMore && hasMoreRef.current) {
+            loadPeople(activeFilter, false);
+          }
+        }}
+        onEndReachedThreshold={0.5}
         renderItem={({ item }) => (
-          <View style={styles.card}>
-            <Image source={{ uri: item.image }} style={styles.image} />
+          <Pressable
+            style={styles.card}
+            onPress={() => openUserProfile(item.id)}>
+            <Image
+              source={{
+                uri: item.profileImage || "https://i.pravatar.cc/400?img=12",
+              }}
+              style={styles.image}
+            />
 
-            {item.online && <View style={styles.online} />}
+            {item.isOnline && (
+              <View style={styles.onlineBadge}>
+                <View style={styles.onlineInner} />
+              </View>
+            )}
+
+            {item.isVerified && (
+              <View style={styles.verifiedBadge}>
+                <Ionicons name="checkmark-circle" size={20} color="#3B9EFF" />
+              </View>
+            )}
 
             <View style={styles.overlay}>
-              <Text style={styles.name}>
-                {item.name}, {item.age}
+              <Text style={styles.name} numberOfLines={1}>
+                {item.fullName || item.username || "Member"}
+                {item.age ? `, ${item.age}` : ""}
               </Text>
 
-              <Text style={styles.distance}>📍 {item.distance} away</Text>
+              <View style={styles.distanceRow}>
+                <Ionicons name="location-outline" size={13} color="#ddd" />
+
+                <Text style={styles.distance} numberOfLines={1}>
+                  {item.location || "Location unavailable"}
+                </Text>
+              </View>
             </View>
-          </View>
+          </Pressable>
         )}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            {loading ? (
+              <ActivityIndicator size="large" color={PRIMARY} />
+            ) : (
+              <>
+                <Ionicons name="people-outline" size={42} color="#777" />
+
+                <Text style={styles.emptyTitle}>
+                  {errorMessage ? "Something went wrong" : "No people found"}
+                </Text>
+
+                <Text style={styles.emptySubtitle}>
+                  {errorMessage || "Try another filter or check back later."}
+                </Text>
+
+                {errorMessage && (
+                  <Pressable
+                    style={styles.retryButton}
+                    onPress={() => loadPeople(activeFilter, true)}>
+                    <Text style={styles.retryText}>Try again</Text>
+                  </Pressable>
+                )}
+              </>
+            )}
+          </View>
+        }
+        ListFooterComponent={
+          loadingMore ? (
+            <View style={styles.footerLoader}>
+              <ActivityIndicator color={PRIMARY} />
+            </View>
+          ) : null
+        }
       />
     </SafeAreaView>
   );
 }
-
-const PRIMARY = "#FF4F9A";
 
 const styles = StyleSheet.create({
   container: {
@@ -129,41 +451,78 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
 
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
+  },
+
   title: {
     color: "#fff",
-    fontSize: 30,
-    fontWeight: "700",
-    marginBottom: 18,
+    fontSize: 27,
+    fontWeight: "800",
+    letterSpacing: -0.7,
+  },
+
+  subtitle: {
+    color: "#888",
+    fontSize: 13,
+    marginTop: 4,
+  },
+
+  headerButton: {
+    width: 43,
+    height: 43,
+    borderRadius: 14,
+    backgroundColor: "#222",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   search: {
-    height: 50,
+    height: 48,
     backgroundColor: "#1E1E1E",
-    borderRadius: 25,
+    borderRadius: 14,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    marginBottom: 18,
+    paddingHorizontal: 15,
+    marginBottom: 17,
   },
 
   input: {
     flex: 1,
     color: "#fff",
     marginLeft: 10,
-    fontSize: 15,
+    fontSize: 14,
   },
 
   filters: {
     flexDirection: "row",
-    marginBottom: 20,
+    flexWrap: "wrap",
+    marginBottom: 22,
+    gap: 8,
+  },
+
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#222",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 22,
   },
 
   activeChip: {
     backgroundColor: PRIMARY,
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 10,
+  },
+
+  chipText: {
+    color: "#aaa",
+    fontSize: 12,
+    fontWeight: "600",
   },
 
   activeText: {
@@ -171,31 +530,57 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  chip: {
-    backgroundColor: "#222",
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 10,
+  onlineDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#32D74B",
   },
 
-  chipText: {
-    color: "#aaa",
-    fontWeight: "600",
+  activeOnlineDot: {
+    backgroundColor: "#fff",
+  },
+
+  resultsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+
+  resultsTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  resultsCount: {
+    color: "#888",
+    fontSize: 12,
+  },
+
+  listContent: {
+    paddingBottom: 30,
+    flexGrow: 1,
+  },
+
+  columnWrapper: {
+    justifyContent: "space-between",
   },
 
   card: {
-    width: "48%",
-    height: 250,
-    borderRadius: 22,
+    width: "48.5%",
+    height: 245,
+    borderRadius: 17,
     overflow: "hidden",
-    marginBottom: 16,
+    marginBottom: 15,
     backgroundColor: "#1F1F1F",
   },
 
   image: {
     width: "100%",
     height: "100%",
+    position: "absolute",
   },
 
   overlay: {
@@ -204,30 +589,100 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     padding: 12,
-    backgroundColor: "rgba(0,0,0,0.35)",
+    paddingTop: 30,
+    backgroundColor: "rgba(0,0,0,0.48)",
   },
 
   name: {
     color: "#fff",
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "700",
+  },
+
+  distanceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 5,
+    gap: 3,
   },
 
   distance: {
     color: "#ddd",
-    marginTop: 4,
-    fontSize: 13,
+    fontSize: 11,
+    flexShrink: 1,
   },
 
-  online: {
+  onlineBadge: {
     position: "absolute",
     top: 12,
     right: 12,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 15,
+    height: 15,
+    borderRadius: 8,
     backgroundColor: "#32D74B",
     borderWidth: 2,
     borderColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  onlineInner: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#fff",
+  },
+
+  verifiedBadge: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    width: 25,
+    height: 25,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  emptyContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 70,
+    paddingHorizontal: 20,
+  },
+
+  emptyTitle: {
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "700",
+    marginTop: 12,
+    textAlign: "center",
+  },
+
+  emptySubtitle: {
+    color: "#888",
+    fontSize: 13,
+    marginTop: 5,
+    textAlign: "center",
+  },
+
+  retryButton: {
+    backgroundColor: PRIMARY,
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginTop: 18,
+  },
+
+  retryText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  footerLoader: {
+    paddingVertical: 20,
+    alignItems: "center",
   },
 });

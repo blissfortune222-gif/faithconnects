@@ -13,13 +13,12 @@ export default function SplashScreen() {
       <Text style={styles.title}>FaithConnect</Text>
 
       {/* Tagline */}
-      <Text style={styles.subtitle}>Faith. Love. Purpose.</Text>
+      <Text style={styles.subtitle}> Love. Purpose.</Text>
 
       {/* Button */}
       <TouchableOpacity
         style={styles.button}
-        onPress={() => router.push("/screens/Onboarding/OnboardingScreen")}
-      >
+        onPress={() => router.push("/screens/Onboarding/OnboardingScreen")}>
         <Text style={styles.buttonText}>Get Started</Text>
       </TouchableOpacity>
     </View>
