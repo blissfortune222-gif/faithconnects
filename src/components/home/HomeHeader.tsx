@@ -28,19 +28,30 @@ export default function HomeHeader({
           <Text style={styles.brandName}>
             Faith<Text style={styles.brandAccent}>Connects</Text>
           </Text>
-
-          {/* <Text style={styles.tagline}>Connect • Share • Belong</Text> */}
         </View>
       </View>
 
       {/* ACTION BUTTONS */}
       <View style={styles.actions}>
+        {/* SEARCH BUTTON */}
         <TouchableOpacity
           style={styles.actionButton}
           onPress={onSearchPress}
           activeOpacity={0.7}
           accessibilityLabel="Search">
-          <Ionicons name="search" size={25} color="#FFFFFF" />
+          <Ionicons name="search" size={23} color="#FFFFFF" />
+        </TouchableOpacity>
+
+        {/* NOTIFICATION BUTTON */}
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={onNotificationPress}
+          activeOpacity={0.7}
+          accessibilityLabel="Notifications">
+          <Ionicons name="notifications-outline" size={24} color="#FFFFFF" />
+
+          {/* NOTIFICATION INDICATOR */}
+          <View style={styles.notificationBadge} />
         </TouchableOpacity>
       </View>
     </View>
@@ -97,24 +108,17 @@ const styles = StyleSheet.create({
     color: PRIMARY,
   },
 
-  tagline: {
-    color: "#B9A9D2",
-    fontSize: 11,
-    marginTop: 2,
-    letterSpacing: 0.3,
-  },
-
   actions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     marginLeft: 8,
   },
 
   actionButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 45,
+    height: 45,
+    borderRadius: 23,
     backgroundColor: "#1B1030",
     borderWidth: 1,
     borderColor: "#49305F",
@@ -125,19 +129,13 @@ const styles = StyleSheet.create({
 
   notificationBadge: {
     position: "absolute",
-    top: 9,
-    right: 10,
+    top: 8,
+    right: 9,
     width: 9,
     height: 9,
     borderRadius: 5,
     backgroundColor: PRIMARY,
     borderWidth: 1,
     borderColor: "#1B1030",
-  },
-
-  notificationDot: {
-    flex: 1,
-    borderRadius: 5,
-    backgroundColor: PRIMARY,
   },
 });

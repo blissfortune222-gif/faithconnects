@@ -1,7 +1,7 @@
 import { ME_QUERY } from "@/graphql/queries/user";
 import { gql, useMutation, useQuery } from "@apollo/client";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useNavigation } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -10,6 +10,8 @@ import {
   Image,
   KeyboardAvoidingView,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -844,7 +846,6 @@ export default function Feed({ currentUserId }: FeedProps) {
     const caption = item.caption?.trim() ?? "";
     const captionExpanded = expandedCaptionIds.has(String(item.id));
     const captionCanExpand = caption.length > 140;
-
     return (
       <View style={styles.card}>
         <View style={styles.header}>
@@ -981,6 +982,58 @@ export default function Feed({ currentUserId }: FeedProps) {
     );
   }
 
+  const navigation = useNavigation();
+
+  const lastScrollY = useRef(0);
+  const tabsHidden = useRef(false);
+
+  const showTabs = () => {
+    if (tabsHidden.current) {
+      tabsHidden.current = false;
+      navigation.setOptions({
+        tabBarStyle: {
+          backgroundColor: "#121212",
+          borderTopColor: "#252525",
+          borderTopWidth: 1,
+          height: 76,
+          paddingTop: 8,
+          paddingBottom: 8,
+          elevation: 0,
+          shadowOpacity: 0,
+        },
+      });
+    }
+  };
+
+  const hideTabs = () => {
+    if (!tabsHidden.current) {
+      tabsHidden.current = true;
+      navigation.setOptions({
+        tabBarStyle: { display: "none" },
+      });
+    }
+  };
+
+  const handleFeedScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const currentY = event.nativeEvent.contentOffset.y;
+    const difference = currentY - lastScrollY.current;
+
+    if (currentY <= 10) {
+      showTabs();
+    } else if (difference > 5) {
+      hideTabs();
+    } else if (difference < -5) {
+      showTabs();
+    }
+
+    lastScrollY.current = currentY;
+  };
+  // function handleFeedScroll(
+  //   event: NativeSyntheticEvent<NativeScrollEvent>,
+  // ): void {
+  //   throw new Error("Function not implemented.");
+  // }
+
   return (
     <>
       <FlatList
@@ -991,6 +1044,8 @@ export default function Feed({ currentUserId }: FeedProps) {
         contentContainerStyle={styles.listContent}
         onRefresh={handleRefresh}
         refreshing={refreshing}
+        onScroll={handleFeedScroll}
+        scrollEventThrottle={16}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
         ListEmptyComponent={

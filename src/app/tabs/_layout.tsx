@@ -100,7 +100,6 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* Selected user's profile - hidden from bottom navigation */}
       <Tabs.Screen
         name="user/[userId]"
         options={{
