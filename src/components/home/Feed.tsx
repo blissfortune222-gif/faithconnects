@@ -276,6 +276,38 @@ const formatTime = (dateString: string) => {
 };
 
 export default function Feed({ currentUserId }: FeedProps) {
+  const navigation = useNavigation();
+
+  const lastScrollY = useRef(0);
+  const tabsHidden = useRef(false);
+
+  const showTabs = () => {
+    if (tabsHidden.current) {
+      tabsHidden.current = false;
+      navigation.setOptions({
+        tabBarStyle: {
+          backgroundColor: "#121212",
+          borderTopColor: "#252525",
+          borderTopWidth: 1,
+          height: 76,
+          paddingTop: 8,
+          paddingBottom: 8,
+          elevation: 0,
+          shadowOpacity: 0,
+        },
+      });
+    }
+  };
+
+  const hideTabs = () => {
+    if (!tabsHidden.current) {
+      tabsHidden.current = true;
+      navigation.setOptions({
+        tabBarStyle: { display: "none" },
+      });
+    }
+  };
+
   const { data, loading, error, refetch, fetchMore, networkStatus } =
     useQuery<PostsResponse>(GET_POSTS, {
       variables: { limit: PAGE_SIZE, offset: 0 },
@@ -981,38 +1013,6 @@ export default function Feed({ currentUserId }: FeedProps) {
       </View>
     );
   }
-
-  const navigation = useNavigation();
-
-  const lastScrollY = useRef(0);
-  const tabsHidden = useRef(false);
-
-  const showTabs = () => {
-    if (tabsHidden.current) {
-      tabsHidden.current = false;
-      navigation.setOptions({
-        tabBarStyle: {
-          backgroundColor: "#121212",
-          borderTopColor: "#252525",
-          borderTopWidth: 1,
-          height: 76,
-          paddingTop: 8,
-          paddingBottom: 8,
-          elevation: 0,
-          shadowOpacity: 0,
-        },
-      });
-    }
-  };
-
-  const hideTabs = () => {
-    if (!tabsHidden.current) {
-      tabsHidden.current = true;
-      navigation.setOptions({
-        tabBarStyle: { display: "none" },
-      });
-    }
-  };
 
   const handleFeedScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const currentY = event.nativeEvent.contentOffset.y;

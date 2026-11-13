@@ -47,6 +47,13 @@ const ME_QUERY = gql`
   }
 `;
 
+const CREATE_CONVERSATION = gql`
+  mutation CreateConversation($userId: ID!) {
+    createConversation(userId: $userId) {
+      id
+    }
+  }
+`;
 const GET_SELECTED_USER = gql`
   query GetSelectedUser($userId: ID!) {
     user(id: $userId) {
@@ -275,7 +282,8 @@ export default function SelectedUserPage() {
 
   const { width } = useWindowDimensions();
   const postSize = (width - 34) / 3;
-
+  const [createConversation, { loading: creatingConversation }] =
+    useMutation(CREATE_CONVERSATION);
   const [activeTab, setActiveTab] = useState<"posts" | "about">("posts");
   const [followLoading, setFollowLoading] = useState(false);
 
@@ -454,10 +462,41 @@ export default function SelectedUserPage() {
   // PROFILE ACTIONS
   // --------------------------------------------------
 
-  const handleMessage = () => {
-    console.log("Message selected user:", user?.id);
-  };
+  const handleMessage = async () => {
+    if (!user?.id || creatingConversation || isOwnProfile) return;
 
+    try {
+      const result = await createConversation({
+        variables: {
+          userId: user.id,
+        },
+      });
+
+      const conversation = result.data?.createConversation;
+
+      if (!conversation?.id) {
+        throw new Error("Could not open this conversation.");
+      }
+
+      router.push({
+        pathname: "/Messages/[conversationId]",
+        params: {
+          conversationId: conversation.id,
+          userId: user.id,
+          userName: user.fullName || user.username || "User",
+          userImage: user.profileImage || "",
+          online: String(user.isOnline || false),
+        },
+      });
+    } catch (error: any) {
+      console.log("Create conversation error:", error);
+
+      Alert.alert(
+        "Unable to open messages",
+        error?.message || "Please try again.",
+      );
+    }
+  };
   // Navigate to the profile of the person who wrote a comment.
   const handleCommentUserPress = (commentUserId?: string) => {
     if (!commentUserId) return;
@@ -647,7 +686,9 @@ export default function SelectedUserPage() {
           {userError?.message || "This profile is unavailable."}
         </Text>
 
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
+        <Pressable
+          style={styles.backButton}
+          onPress={() => router.push("../tabs/discover")}>
           <Text style={styles.backButtonText}>Go back</Text>
         </Pressable>
       </SafeAreaView>
