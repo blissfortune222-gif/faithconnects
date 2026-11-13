@@ -2649,7 +2649,7 @@ export default function Profile() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: BACKGROUND,
+    backgroundColor: "#121212",
   },
 
   listContent: {

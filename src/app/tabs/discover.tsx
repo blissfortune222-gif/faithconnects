@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  Modal,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -20,6 +21,13 @@ const PAGE_SIZE = 20;
 
 type FilterType = "Discover" | "Nearby" | "Online" | "Verified";
 
+type SortType =
+  | "Recommended"
+  | "Recently joined"
+  | "Name (A–Z)"
+  | "Online first"
+  | "Verified first";
+
 type DiscoverPerson = {
   id: string;
   fullName?: string;
@@ -29,6 +37,7 @@ type DiscoverPerson = {
   profileImage?: string;
   isOnline?: boolean;
   isVerified?: boolean;
+  createdAt?: string;
 };
 
 type DiscoverQueryResult = {
@@ -81,14 +90,23 @@ const DISCOVER_VERIFIED_QUERY = gql`
   }
 `;
 
+const SORT_OPTIONS: SortType[] = [
+  "Recommended",
+  "Recently joined",
+  "Name (A–Z)",
+  "Online first",
+  "Verified first",
+];
+
 export default function Discover() {
   const [activeFilter, setActiveFilter] = useState<FilterType>("Discover");
-
   const [searchQuery, setSearchQuery] = useState("");
   const [people, setPeople] = useState<DiscoverPerson[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [sortBy, setSortBy] = useState<SortType>("Recommended");
+  const [sortVisible, setSortVisible] = useState(false);
 
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(true);
@@ -217,7 +235,6 @@ export default function Discover() {
     loadPeople(filter, true);
   };
 
-  // Navigate to the selected user's profile.
   const openUserProfile = (userId: string) => {
     if (!userId) return;
 
@@ -232,9 +249,9 @@ export default function Discover() {
   const filteredPeople = useMemo(() => {
     const search = searchQuery.trim().toLowerCase();
 
-    if (!search) return people;
+    let result = people.filter((person) => {
+      if (!search) return true;
 
-    return people.filter((person) => {
       const name = person.fullName || "";
       const username = person.username || "";
 
@@ -243,7 +260,44 @@ export default function Discover() {
         username.toLowerCase().includes(search)
       );
     });
-  }, [people, searchQuery]);
+
+    switch (sortBy) {
+      case "Recently joined":
+        result = [...result].sort((a, b) => {
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+
+          return dateB - dateA;
+        });
+        break;
+
+      case "Name (A–Z)":
+        result = [...result].sort((a, b) => {
+          const nameA = (a.fullName || a.username || "").toLowerCase();
+          const nameB = (b.fullName || b.username || "").toLowerCase();
+
+          return nameA.localeCompare(nameB);
+        });
+        break;
+
+      case "Online first":
+        result = [...result].sort(
+          (a, b) => Number(!!b.isOnline) - Number(!!a.isOnline),
+        );
+        break;
+
+      case "Verified first":
+        result = [...result].sort(
+          (a, b) => Number(!!b.isVerified) - Number(!!a.isVerified),
+        );
+        break;
+
+      default:
+        break;
+    }
+
+    return result;
+  }, [people, searchQuery, sortBy]);
 
   const filters: FilterType[] = ["Discover", "Nearby", "Online", "Verified"];
 
@@ -256,7 +310,12 @@ export default function Discover() {
           <Text style={styles.subtitle}>Find meaningful connections</Text>
         </View>
 
-        <Pressable style={styles.headerButton}>
+        <Pressable
+          style={[
+            styles.headerButton,
+            sortVisible && styles.headerButtonActive,
+          ]}
+          onPress={() => setSortVisible(true)}>
           <Ionicons name="options-outline" size={23} color="#fff" />
         </Pressable>
       </View>
@@ -293,7 +352,7 @@ export default function Discover() {
               {filter === "Nearby" && (
                 <Ionicons
                   name="location"
-                  size={15}
+                  size={14}
                   color={active ? "#fff" : "#aaa"}
                 />
               )}
@@ -307,7 +366,7 @@ export default function Discover() {
               {filter === "Verified" && (
                 <Ionicons
                   name="shield-checkmark"
-                  size={15}
+                  size={14}
                   color={active ? "#fff" : "#aaa"}
                 />
               )}
@@ -315,12 +374,15 @@ export default function Discover() {
               {filter === "Discover" && (
                 <Ionicons
                   name="compass-outline"
-                  size={16}
+                  size={15}
                   color={active ? "#fff" : "#aaa"}
                 />
               )}
 
-              <Text style={[styles.chipText, active && styles.activeText]}>
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                style={[styles.chipText, active && styles.activeText]}>
                 {filter}
               </Text>
             </Pressable>
@@ -439,6 +501,69 @@ export default function Discover() {
           ) : null
         }
       />
+
+      {/* SORT MODAL */}
+      <Modal
+        visible={sortVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSortVisible(false)}>
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setSortVisible(false)}>
+          <Pressable
+            style={styles.sortModal}
+            onPress={(event) => event.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Sort people</Text>
+                <Text style={styles.modalSubtitle}>
+                  Choose how profiles appear
+                </Text>
+              </View>
+
+              <Pressable
+                style={styles.closeButton}
+                onPress={() => setSortVisible(false)}>
+                <Ionicons name="close" size={21} color="#fff" />
+              </Pressable>
+            </View>
+
+            {SORT_OPTIONS.map((option) => {
+              const selected = sortBy === option;
+
+              return (
+                <Pressable
+                  key={option}
+                  style={[
+                    styles.sortOption,
+                    selected && styles.selectedSortOption,
+                  ]}
+                  onPress={() => {
+                    setSortBy(option);
+                    setSortVisible(false);
+                  }}>
+                  <Text
+                    style={[
+                      styles.sortOptionText,
+                      selected && styles.selectedSortText,
+                    ]}>
+                    {option}
+                  </Text>
+
+                  {selected && (
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={21}
+                      color={PRIMARY}
+                    />
+                  )}
+                </Pressable>
+              );
+            })}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -480,6 +605,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  headerButtonActive: {
+    backgroundColor: PRIMARY,
+  },
+
   search: {
     height: 48,
     backgroundColor: "#1E1E1E",
@@ -497,22 +626,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
+  // Every filter receives exactly one quarter of the row.
   filters: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    width: "100%",
+    gap: 6,
     marginBottom: 22,
-    gap: 8,
   },
 
   chip: {
+    flex: 1,
+    minWidth: 0,
+    height: 42,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 4,
     backgroundColor: "#222",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 22,
+    paddingHorizontal: 3,
+    borderRadius: 12,
   },
 
   activeChip: {
@@ -521,8 +653,9 @@ const styles = StyleSheet.create({
 
   chipText: {
     color: "#aaa",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
+    flexShrink: 1,
   },
 
   activeText: {
@@ -684,5 +817,76 @@ const styles = StyleSheet.create({
   footerLoader: {
     paddingVertical: 20,
     alignItems: "center",
+  },
+
+  // Sorting modal
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+
+  sortModal: {
+    backgroundColor: "#1C1C1C",
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "#303030",
+  },
+
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 18,
+  },
+
+  modalTitle: {
+    color: "#fff",
+    fontSize: 19,
+    fontWeight: "800",
+  },
+
+  modalSubtitle: {
+    color: "#888",
+    fontSize: 12,
+    marginTop: 4,
+  },
+
+  closeButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: "#303030",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  sortOption: {
+    minHeight: 49,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 13,
+    borderRadius: 12,
+    marginTop: 6,
+    backgroundColor: "#252525",
+  },
+
+  selectedSortOption: {
+    backgroundColor: "rgba(255,79,154,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,79,154,0.35)",
+  },
+
+  sortOptionText: {
+    color: "#ccc",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  selectedSortText: {
+    color: "#fff",
   },
 });
