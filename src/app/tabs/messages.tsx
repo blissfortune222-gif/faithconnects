@@ -1,7 +1,7 @@
 import { gql, useQuery } from "@apollo/client";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import { useMemo, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -18,8 +18,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 const BACKGROUND = "#121212";
 const PRIMARY = "#FF4F9A";
 const TEXT = "#FFFFFF";
-const MUTED = "#8B8B8B";
-const BORDER = "#262626";
+const MUTED = "#858585";
+const BORDER = "#292929";
 const GREEN = "#31D69A";
 
 const ME_QUERY = gql`
@@ -66,6 +66,10 @@ type Conversation = {
   participants: Participant[];
 };
 
+type ConversationItem = Conversation & {
+  otherUser: Participant;
+};
+
 function formatMessageTime(dateString?: string | null) {
   if (!dateString) return "";
 
@@ -74,9 +78,8 @@ function formatMessageTime(dateString?: string | null) {
   if (Number.isNaN(date.getTime())) return "";
 
   const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
 
-  if (isToday) {
+  if (date.toDateString() === now.toDateString()) {
     return date.toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
@@ -100,24 +103,50 @@ export default function MessagesScreen() {
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"All" | "Online">("All");
 
-  const { data: meData, loading: meLoading } = useQuery(ME_QUERY, {
+  // Get the authenticated user.
+  const {
+    data: meData,
+    loading: meLoading,
+    error: meError,
+  } = useQuery(ME_QUERY, {
     fetchPolicy: "cache-and-network",
   });
 
+  const currentUserId = meData?.me?.id;
+
+  // Read cached conversations immediately and fetch updated data.
   const { data, loading, error, refetch, networkStatus } = useQuery(
     CONVERSATIONS_QUERY,
     {
+      skip: !currentUserId,
       fetchPolicy: "cache-and-network",
       notifyOnNetworkStatusChange: true,
     },
   );
 
-  const currentUserId = meData?.me?.id;
+  // Refresh conversations whenever this screen comes into focus.
+  useFocusEffect(
+    useCallback(() => {
+      if (!currentUserId) return;
+
+      refetch().catch((refreshError) => {
+        console.error("Conversations refresh error:", refreshError);
+      });
+    }, [currentUserId, refetch]),
+  );
 
   const conversations: Conversation[] = data?.conversations || [];
 
-  const formattedConversations = useMemo(() => {
+  // Only display conversations containing actual messages.
+  const formattedConversations = useMemo<ConversationItem[]>(() => {
+    if (!currentUserId) return [];
+
     return conversations
+      .filter(
+        (conversation) =>
+          typeof conversation.lastMessage === "string" &&
+          conversation.lastMessage.trim().length > 0,
+      )
       .map((conversation) => {
         const otherUser = conversation.participants?.find(
           (participant) => participant.id !== currentUserId,
@@ -130,8 +159,11 @@ export default function MessagesScreen() {
           otherUser,
         };
       })
-      .filter(Boolean)
-      .sort((a: any, b: any) => {
+      .filter(
+        (conversation): conversation is ConversationItem =>
+          conversation !== null,
+      )
+      .sort((a, b) => {
         const dateA = new Date(a.lastMessageAt || a.updatedAt).getTime();
 
         const dateB = new Date(b.lastMessageAt || b.updatedAt).getTime();
@@ -140,15 +172,19 @@ export default function MessagesScreen() {
       });
   }, [conversations, currentUserId]);
 
+  const onlineCount = formattedConversations.filter(
+    (conversation) => conversation.otherUser.isOnline,
+  ).length;
+
   const filteredConversations = useMemo(() => {
-    let result = formattedConversations as any[];
+    let result = [...formattedConversations];
 
     if (activeTab === "Online") {
       result = result.filter((conversation) => conversation.otherUser.isOnline);
     }
 
     if (search.trim()) {
-      const value = search.toLowerCase();
+      const value = search.toLowerCase().trim();
 
       result = result.filter((conversation) => {
         const user = conversation.otherUser;
@@ -164,7 +200,7 @@ export default function MessagesScreen() {
     return result;
   }, [formattedConversations, activeTab, search]);
 
-  const openConversation = (conversation: any) => {
+  const openConversation = (conversation: ConversationItem) => {
     const user = conversation.otherUser;
 
     router.push({
@@ -179,12 +215,12 @@ export default function MessagesScreen() {
     });
   };
 
-  const renderConversation = ({ item }: { item: any }) => {
+  const renderConversation = ({ item }: { item: ConversationItem }) => {
     const user = item.otherUser;
 
     const displayName = user.fullName || user.username || "User";
 
-    const message = item.lastMessage || "No messages yet. Say hello!";
+    const message = item.lastMessage || "";
 
     const messageTime = formatMessageTime(item.lastMessageAt || item.updatedAt);
 
@@ -216,19 +252,18 @@ export default function MessagesScreen() {
             <Text style={styles.timeText}>{messageTime}</Text>
           </View>
 
-          <View style={styles.bottomLine}>
-            <Text style={styles.lastMessage} numberOfLines={1}>
-              {message}
-            </Text>
-
-            <Ionicons name="chevron-forward" size={17} color="#555555" />
-          </View>
+          <Text style={styles.lastMessage} numberOfLines={1}>
+            {message}
+          </Text>
         </View>
       </Pressable>
     );
   };
 
-  const isInitialLoading = (loading || meLoading) && !data;
+  const isInitialLoading =
+    meLoading || (Boolean(currentUserId) && loading && !data);
+
+  const screenError = meError || error;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -240,11 +275,22 @@ export default function MessagesScreen() {
           <View>
             <Text style={styles.headerTitle}>Messages</Text>
 
-            <Text style={styles.headerSubtitle}>Your conversations</Text>
+            <Text style={styles.headerSubtitle}>
+              Stay connected with your people
+            </Text>
           </View>
 
-          <Pressable style={styles.headerIcon} onPress={() => refetch()}>
-            <Ionicons name="refresh-outline" size={21} color={TEXT} />
+          <Pressable
+            style={({ pressed }) => [
+              styles.headerIcon,
+              pressed && styles.pressedButton,
+            ]}
+            onPress={() => {
+              refetch().catch((refreshError) =>
+                console.error("Refresh error:", refreshError),
+              );
+            }}>
+            <Ionicons name="refresh-outline" size={20} color={TEXT} />
           </Pressable>
         </View>
 
@@ -268,57 +314,102 @@ export default function MessagesScreen() {
           )}
         </View>
 
-        {/* Conversation filters */}
+        {/* Filters */}
         <View style={styles.filterContainer}>
-          {(["All", "Online"] as const).map((tab) => {
-            const selected = activeTab === tab;
+          <Pressable
+            onPress={() => setActiveTab("All")}
+            style={[
+              styles.filterButton,
+              activeTab === "All" && styles.activeFilterButton,
+            ]}>
+            <Text
+              style={[
+                styles.filterText,
+                activeTab === "All" && styles.activeFilterText,
+              ]}>
+              All
+            </Text>
 
-            return (
-              <Pressable
-                key={tab}
-                onPress={() => setActiveTab(tab)}
+            <View
+              style={[
+                styles.filterCount,
+                activeTab === "All" && styles.activeFilterCount,
+              ]}>
+              <Text
                 style={[
-                  styles.filterButton,
-                  selected && styles.activeFilterButton,
+                  styles.filterCountText,
+                  activeTab === "All" && styles.activeFilterCountText,
                 ]}>
-                <Text
-                  style={[
-                    styles.filterText,
-                    selected && styles.activeFilterText,
-                  ]}>
-                  {tab}
-                </Text>
-              </Pressable>
-            );
-          })}
+                {formattedConversations.length}
+              </Text>
+            </View>
+          </Pressable>
 
-          <View style={styles.conversationCount}>
-            <Text style={styles.countText}>{filteredConversations.length}</Text>
-          </View>
+          <Pressable
+            onPress={() => setActiveTab("Online")}
+            style={[
+              styles.filterButton,
+              activeTab === "Online" && styles.activeFilterButton,
+            ]}>
+            <View style={styles.onlineTabDot} />
+
+            <Text
+              style={[
+                styles.filterText,
+                activeTab === "Online" && styles.activeFilterText,
+              ]}>
+              Online
+            </Text>
+
+            <View
+              style={[
+                styles.filterCount,
+                activeTab === "Online" && styles.activeFilterCount,
+              ]}>
+              <Text
+                style={[
+                  styles.filterCountText,
+                  activeTab === "Online" && styles.activeFilterCountText,
+                ]}>
+                {onlineCount}
+              </Text>
+            </View>
+          </Pressable>
         </View>
 
-        {/* Conversation list */}
+        {/* Conversations */}
         {isInitialLoading ? (
           <View style={styles.centerContainer}>
             <ActivityIndicator size="large" color={PRIMARY} />
-            <Text style={styles.loadingText}>Loading conversations...</Text>
+
+            <Text style={styles.loadingText}>
+              Loading your conversations...
+            </Text>
           </View>
-        ) : error ? (
+        ) : screenError ? (
           <View style={styles.centerContainer}>
-            <Ionicons name="chatbubbles-outline" size={42} color={MUTED} />
+            <View style={styles.emptyIcon}>
+              <Ionicons name="chatbubbles-outline" size={34} color={PRIMARY} />
+            </View>
 
             <Text style={styles.emptyTitle}>Couldn't load conversations</Text>
 
-            <Text style={styles.emptySubtitle}>{error.message}</Text>
+            <Text style={styles.emptySubtitle}>{screenError.message}</Text>
 
-            <Pressable style={styles.retryButton} onPress={() => refetch()}>
+            <Pressable
+              style={styles.retryButton}
+              onPress={() => {
+                refetch().catch((refreshError) =>
+                  console.error("Retry error:", refreshError),
+                );
+              }}>
               <Text style={styles.retryText}>Try again</Text>
             </Pressable>
           </View>
         ) : (
           <FlatList
             data={filteredConversations}
-            keyExtractor={(item: any) => item.id}
+            keyExtractor={(item) => item.id}
             renderItem={renderConversation}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={[
@@ -326,12 +417,15 @@ export default function MessagesScreen() {
               filteredConversations.length === 0 && styles.emptyListContent,
             ]}
             refreshing={networkStatus === 4}
-            onRefresh={refetch}
+            onRefresh={() => refetch()}
+            keyboardShouldPersistTaps="handled"
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
                 <View style={styles.emptyIcon}>
                   <Ionicons
-                    name="chatbubble-ellipses-outline"
+                    name={
+                      search ? "search-outline" : "chatbubble-ellipses-outline"
+                    }
                     size={34}
                     color={PRIMARY}
                   />
@@ -347,8 +441,10 @@ export default function MessagesScreen() {
 
                 <Text style={styles.emptySubtitle}>
                   {search
-                    ? "Try searching with another name."
-                    : "Your conversations will appear here when you start chatting."}
+                    ? "Try another name or search term."
+                    : activeTab === "Online"
+                      ? "When someone you've chatted with is online, they'll appear here."
+                      : "You haven't started any conversations yet. Discover people and start connecting."}
                 </Text>
               </View>
             }
@@ -375,7 +471,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: 14,
+    paddingTop: 12,
     paddingBottom: 23,
   },
 
@@ -383,35 +479,40 @@ const styles = StyleSheet.create({
     color: TEXT,
     fontSize: 29,
     fontWeight: "800",
-    letterSpacing: -0.7,
+    letterSpacing: -0.8,
   },
 
   headerSubtitle: {
     color: MUTED,
     fontSize: 13,
-    marginTop: 5,
+    marginTop: 6,
   },
 
   headerIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
+    width: 43,
+    height: 43,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
     borderColor: BORDER,
+    backgroundColor: "transparent",
+  },
+
+  pressedButton: {
+    opacity: 0.65,
   },
 
   searchContainer: {
-    height: 51,
+    height: 52,
     borderRadius: 15,
-    backgroundColor: "transparent",
+    backgroundColor: "#181818",
     borderWidth: 1,
     borderColor: BORDER,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 15,
-    marginBottom: 21,
+    marginBottom: 23,
   },
 
   searchInput: {
@@ -425,21 +526,26 @@ const styles = StyleSheet.create({
   filterContainer: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 11,
     marginBottom: 13,
-    gap: 10,
   },
 
   filterButton: {
-    paddingHorizontal: 18,
-    paddingVertical: 9,
-    borderRadius: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: BORDER,
+    backgroundColor: "transparent",
   },
 
   activeFilterButton: {
-    backgroundColor: PRIMARY,
-    borderColor: PRIMARY,
+    backgroundColor: "#2A1823",
+    borderColor: "#71304D",
   },
 
   filterText: {
@@ -449,35 +555,49 @@ const styles = StyleSheet.create({
   },
 
   activeFilterText: {
+    color: TEXT,
+  },
+
+  filterCount: {
+    minWidth: 21,
+    height: 21,
+    borderRadius: 11,
+    paddingHorizontal: 5,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#292929",
+  },
+
+  activeFilterCount: {
+    backgroundColor: PRIMARY,
+  },
+
+  filterCountText: {
+    color: "#AAAAAA",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+
+  activeFilterCountText: {
     color: "#FFFFFF",
   },
 
-  conversationCount: {
-    marginLeft: "auto",
-    minWidth: 28,
-    height: 28,
-    paddingHorizontal: 8,
-    borderRadius: 14,
-    backgroundColor: "#242424",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  countText: {
-    color: TEXT,
-    fontSize: 12,
-    fontWeight: "700",
+  onlineTabDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: GREEN,
   },
 
   listContent: {
-    paddingTop: 5,
-    paddingBottom: 30,
+    paddingTop: 4,
+    paddingBottom: 35,
   },
 
   conversationRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 15,
+    paddingVertical: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: BORDER,
   },
@@ -487,23 +607,23 @@ const styles = StyleSheet.create({
   },
 
   avatarContainer: {
-    width: 56,
-    height: 56,
+    width: 58,
+    height: 58,
     marginRight: 14,
     position: "relative",
   },
 
   avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#252525",
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: "#242424",
   },
 
   avatarPlaceholder: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     backgroundColor: "#242424",
     alignItems: "center",
     justifyContent: "center",
@@ -511,8 +631,8 @@ const styles = StyleSheet.create({
 
   onlineIndicator: {
     position: "absolute",
-    width: 13,
-    height: 13,
+    width: 14,
+    height: 14,
     borderRadius: 7,
     backgroundColor: GREEN,
     borderWidth: 2,
@@ -547,17 +667,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
 
-  bottomLine: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-
   lastMessage: {
-    flex: 1,
     color: "#929292",
     fontSize: 13,
-    marginRight: 10,
+    lineHeight: 19,
   },
 
   centerContainer: {
@@ -570,7 +683,7 @@ const styles = StyleSheet.create({
   loadingText: {
     color: MUTED,
     fontSize: 13,
-    marginTop: 14,
+    marginTop: 15,
   },
 
   emptyListContent: {
@@ -586,21 +699,23 @@ const styles = StyleSheet.create({
   },
 
   emptyIcon: {
-    width: 75,
-    height: 75,
+    width: 76,
+    height: 76,
     borderRadius: 25,
-    backgroundColor: "#242424",
+    backgroundColor: "#241923",
+    borderWidth: 1,
+    borderColor: "#382431",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 20,
+    marginBottom: 8,
   },
 
   emptyTitle: {
     color: TEXT,
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: "700",
     textAlign: "center",
-    marginTop: 15,
+    marginTop: 14,
   },
 
   emptySubtitle: {
@@ -608,14 +723,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 21,
     textAlign: "center",
-    marginTop: 8,
+    marginTop: 9,
   },
 
   retryButton: {
     backgroundColor: PRIMARY,
-    paddingHorizontal: 22,
-    paddingVertical: 11,
-    borderRadius: 12,
+    paddingHorizontal: 23,
+    paddingVertical: 12,
+    borderRadius: 13,
     marginTop: 20,
   },
 

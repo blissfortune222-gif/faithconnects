@@ -54,6 +54,7 @@ const CREATE_CONVERSATION = gql`
     }
   }
 `;
+
 const GET_SELECTED_USER = gql`
   query GetSelectedUser($userId: ID!) {
     user(id: $userId) {
@@ -115,6 +116,7 @@ const GET_SELECTED_USER_POSTS = gql`
       }
       likesCount
       commentsCount
+      isLiked
       createdAt
     }
   }
@@ -177,6 +179,26 @@ const DELETE_COMMENT = gql`
   }
 `;
 
+const LIKE_POST = gql`
+  mutation LikePost($postId: ID!) {
+    likePost(postId: $postId) {
+      id
+      likesCount
+      isLiked
+    }
+  }
+`;
+
+const UNLIKE_POST = gql`
+  mutation UnlikePost($postId: ID!) {
+    unlikePost(postId: $postId) {
+      id
+      likesCount
+      isLiked
+    }
+  }
+`;
+
 // ----------------------------------------------------
 // TYPES
 // ----------------------------------------------------
@@ -208,6 +230,7 @@ type UserPost = {
   }[];
   likesCount?: number;
   commentsCount?: number;
+  isLiked?: boolean;
   createdAt?: string;
 };
 
@@ -282,8 +305,10 @@ export default function SelectedUserPage() {
 
   const { width } = useWindowDimensions();
   const postSize = (width - 34) / 3;
+
   const [createConversation, { loading: creatingConversation }] =
     useMutation(CREATE_CONVERSATION);
+
   const [activeTab, setActiveTab] = useState<"posts" | "about">("posts");
   const [followLoading, setFollowLoading] = useState(false);
 
@@ -301,6 +326,16 @@ export default function SelectedUserPage() {
 
   const [blockLoading, setBlockLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // LIKE STATE
+
+  const [likingPost, setLikingPost] = useState(false);
+
+  // EXPANDED COMMENT STATE
+
+  const [expandedComments, setExpandedComments] = useState<
+    Record<string, boolean>
+  >({});
 
   // --------------------------------------------------
   // QUERIES
@@ -376,6 +411,9 @@ export default function SelectedUserPage() {
     useMutation(UPDATE_COMMENT);
 
   const [deleteComment] = useMutation(DELETE_COMMENT);
+
+  const [likePost] = useMutation(LIKE_POST);
+  const [unlikePost] = useMutation(UNLIKE_POST);
 
   // --------------------------------------------------
   // DERIVED DATA
@@ -497,11 +535,11 @@ export default function SelectedUserPage() {
       );
     }
   };
+
   // Navigate to the profile of the person who wrote a comment.
+
   const handleCommentUserPress = (commentUserId?: string) => {
     if (!commentUserId) return;
-
-    // Avoid navigating to the profile already being viewed.
     if (commentUserId === userId) return;
 
     router.push({
@@ -521,6 +559,8 @@ export default function SelectedUserPage() {
     setEditingComment(null);
     setActiveComment(null);
     setCommentOptionsVisible(false);
+    setDeleteConfirmVisible(false);
+    setExpandedComments({});
     setSelectedPost(post);
   };
 
@@ -529,7 +569,119 @@ export default function SelectedUserPage() {
     setCommentText("");
     setEditingComment(null);
     setCommentOptionsVisible(false);
+    setDeleteConfirmVisible(false);
     setActiveComment(null);
+    setExpandedComments({});
+  };
+
+  // --------------------------------------------------
+  // LIKE / UNLIKE POST
+  // --------------------------------------------------
+
+  const handleLikePost = async () => {
+    if (!selectedPost?.id || likingPost) return;
+
+    const post = selectedPost;
+    const wasLiked = Boolean(post.isLiked);
+    const previousCount = post.likesCount ?? 0;
+
+    const nextLiked = !wasLiked;
+    const nextCount = Math.max(0, previousCount + (nextLiked ? 1 : -1));
+
+    // Update the opened post immediately.
+
+    setSelectedPost({
+      ...post,
+      isLiked: nextLiked,
+      likesCount: nextCount,
+    });
+
+    // Also update the posts grid cache.
+
+    try {
+      const cachedData = {
+        userPosts: posts.map((item) =>
+          item.id === post.id
+            ? {
+                ...item,
+                isLiked: nextLiked,
+                likesCount: nextCount,
+              }
+            : item,
+        ),
+      };
+
+      // The visible post is updated locally; Apollo mutation
+      // below synchronizes the server result.
+
+      setLikingPost(true);
+
+      const mutation = nextLiked ? likePost : unlikePost;
+      const mutationName = nextLiked ? "likePost" : "unlikePost";
+
+      const result = await mutation({
+        variables: {
+          postId: post.id,
+        },
+        optimisticResponse: {
+          [mutationName]: {
+            __typename: "Post",
+            id: post.id,
+            likesCount: nextCount,
+            isLiked: nextLiked,
+          },
+        },
+      });
+
+      const updatedPost = result.data?.[mutationName];
+
+      if (updatedPost) {
+        setSelectedPost((current) => {
+          if (!current || current.id !== post.id) return current;
+
+          return {
+            ...current,
+            isLiked: updatedPost.isLiked,
+            likesCount: updatedPost.likesCount,
+          };
+        });
+      }
+
+      // Keep the query cache synchronized with the returned state.
+      await refetchPosts();
+
+      void cachedData;
+    } catch (error: any) {
+      console.log("Like post error:", error);
+
+      setSelectedPost((current) => {
+        if (!current || current.id !== post.id) return current;
+
+        return {
+          ...current,
+          isLiked: wasLiked,
+          likesCount: previousCount,
+        };
+      });
+
+      Alert.alert(
+        "Unable to update like",
+        error?.message || "Please try again.",
+      );
+    } finally {
+      setLikingPost(false);
+    }
+  };
+
+  // --------------------------------------------------
+  // EXPAND / COLLAPSE COMMENTS
+  // --------------------------------------------------
+
+  const toggleCommentExpansion = (commentId: string) => {
+    setExpandedComments((previous) => ({
+      ...previous,
+      [commentId]: !previous[commentId],
+    }));
   };
 
   // --------------------------------------------------
@@ -583,8 +735,6 @@ export default function SelectedUserPage() {
   const handleOwnCommentPress = (comment: Comment) => {
     if (!currentUserId || comment.author?.id !== currentUserId) return;
 
-    console.log("Selected own comment:", comment.id);
-
     setActiveComment(comment);
     setCommentOptionsVisible(true);
   };
@@ -608,7 +758,6 @@ export default function SelectedUserPage() {
   const handleDeleteComment = () => {
     if (!activeComment || deleteLoading) return;
 
-    // Keep activeComment while showing the confirmation overlay.
     setCommentOptionsVisible(false);
     setDeleteConfirmVisible(true);
   };
@@ -830,9 +979,22 @@ export default function SelectedUserPage() {
                 )}
               </Pressable>
 
-              <Pressable style={styles.messageButton} onPress={handleMessage}>
-                <Ionicons name="chatbubble-outline" size={18} color="#FFFFFF" />
-                <Text style={styles.messageButtonText}>Message</Text>
+              <Pressable
+                style={styles.messageButton}
+                onPress={handleMessage}
+                disabled={creatingConversation}>
+                {creatingConversation ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="chatbubble-outline"
+                      size={18}
+                      color="#FFFFFF"
+                    />
+                    <Text style={styles.messageButtonText}>Message</Text>
+                  </>
+                )}
               </Pressable>
             </View>
           )}
@@ -953,7 +1115,11 @@ export default function SelectedUserPage() {
                       )}
 
                       <View style={styles.postOverlay}>
-                        <Ionicons name="heart" size={13} color="#FFFFFF" />
+                        <Ionicons
+                          name="heart"
+                          size={13}
+                          color={post.isLiked ? PRIMARY : "#FFFFFF"}
+                        />
 
                         <Text style={styles.postOverlayText}>
                           {post.likesCount ?? 0}
@@ -1220,20 +1386,34 @@ export default function SelectedUserPage() {
                     </View>
                   ) : null}
 
-                  {/* POST COUNTS */}
+                  {/* POST ENGAGEMENT */}
 
                   <View style={styles.postEngagement}>
-                    <View style={styles.engagementItem}>
-                      <Ionicons
-                        name="heart-outline"
-                        size={19}
-                        color={PRIMARY}
-                      />
+                    <Pressable
+                      style={styles.engagementItem}
+                      onPress={handleLikePost}
+                      disabled={likingPost}
+                      hitSlop={8}>
+                      {likingPost ? (
+                        <ActivityIndicator size="small" color={PRIMARY} />
+                      ) : (
+                        <Ionicons
+                          name={
+                            selectedPost.isLiked ? "heart" : "heart-outline"
+                          }
+                          size={21}
+                          color={selectedPost.isLiked ? PRIMARY : "#FFFFFF"}
+                        />
+                      )}
 
-                      <Text style={styles.engagementText}>
+                      <Text
+                        style={[
+                          styles.engagementText,
+                          selectedPost.isLiked && styles.likedEngagementText,
+                        ]}>
                         {selectedPost.likesCount ?? 0} likes
                       </Text>
-                    </View>
+                    </Pressable>
 
                     <View style={styles.engagementItem}>
                       <Ionicons
@@ -1243,7 +1423,7 @@ export default function SelectedUserPage() {
                       />
 
                       <Text style={styles.engagementText}>
-                        {comments.length} comments
+                        {selectedPost.commentsCount ?? comments.length} comments
                       </Text>
                     </View>
                   </View>
@@ -1297,9 +1477,15 @@ export default function SelectedUserPage() {
                           Boolean(currentUserId) &&
                           comment.author?.id === currentUserId;
 
+                        const isExpanded = Boolean(
+                          expandedComments[comment.id],
+                        );
+
+                        const isLongComment = comment.text.length > 150;
+
                         return (
                           <View key={comment.id} style={styles.commentRow}>
-                            {/* COMMENTER AVATAR - NAVIGATES TO PROFILE */}
+                            {/* COMMENTER AVATAR */}
 
                             <Pressable
                               onPress={() =>
@@ -1327,7 +1513,7 @@ export default function SelectedUserPage() {
 
                             <View style={styles.commentContent}>
                               <View style={styles.commentBubble}>
-                                {/* COMMENTER NAME - NAVIGATES TO PROFILE */}
+                                {/* COMMENTER NAME */}
 
                                 <View style={styles.commentTopRow}>
                                   <Pressable
@@ -1349,7 +1535,7 @@ export default function SelectedUserPage() {
                                   )}
                                 </View>
 
-                                {/* COMMENT TEXT - OWN COMMENTS OPEN ACTIONS */}
+                                {/* COMMENT TEXT */}
 
                                 <Pressable
                                   onPress={() => {
@@ -1364,22 +1550,33 @@ export default function SelectedUserPage() {
                                       isOwnComment &&
                                       styles.commentBubblePressed,
                                   ]}>
-                                  <Text style={styles.commentText}>
+                                  <Text
+                                    style={styles.commentText}
+                                    numberOfLines={isExpanded ? undefined : 3}>
                                     {comment.text}
                                   </Text>
                                 </Pressable>
+
+                                {/* SEE MORE / SEE LESS */}
+
+                                {isLongComment && (
+                                  <Pressable
+                                    onPress={() =>
+                                      toggleCommentExpansion(comment.id)
+                                    }
+                                    style={styles.commentExpandButton}
+                                    hitSlop={8}>
+                                    <Text style={styles.commentExpandText}>
+                                      {isExpanded ? "See less" : "See more"}
+                                    </Text>
+                                  </Pressable>
+                                )}
                               </View>
 
                               <View style={styles.commentMeta}>
                                 <Text style={styles.commentTime}>
                                   {formatTime(comment.createdAt)}
                                 </Text>
-
-                                {/* {isOwnComment && (
-                                  <Text style={styles.editHintText}>
-                                    Tap your comment to manage
-                                  </Text>
-                                )} */}
                               </View>
                             </View>
                           </View>
@@ -1506,7 +1703,28 @@ export default function SelectedUserPage() {
                   </Pressable>
                 </View>
 
-                {/* DELETE */}
+                {/* EDIT COMMENT */}
+
+                <Pressable
+                  style={styles.commentOption}
+                  onPress={handleEditComment}
+                  disabled={deleteLoading}>
+                  <View style={styles.editOptionIcon}>
+                    <Ionicons name="create-outline" size={21} color={PRIMARY} />
+                  </View>
+
+                  <View style={styles.commentOptionTextContainer}>
+                    <Text style={styles.commentOptionTitle}>Edit comment</Text>
+
+                    <Text style={styles.commentOptionDescription}>
+                      Make changes to your comment
+                    </Text>
+                  </View>
+
+                  <Ionicons name="chevron-forward" size={18} color={MUTED} />
+                </Pressable>
+
+                {/* DELETE COMMENT */}
 
                 <Pressable
                   style={styles.commentOption}
@@ -1880,7 +2098,6 @@ const styles = StyleSheet.create({
   },
   textPost: {
     flex: 1,
-    // backgroundColor: CARD_LIGHT,
     backgroundColor: "#121212",
     justifyContent: "center",
     alignItems: "center",
@@ -2126,13 +2343,11 @@ const styles = StyleSheet.create({
 
   fullPostScreen: {
     flex: 1,
-    // backgroundColor: BACKGROUND,
     backgroundColor: "#121212",
     position: "relative",
   },
   postSafeArea: {
     flex: 1,
-    // backgroundColor: BACKGROUND,
     backgroundColor: "#121212",
   },
   postModalHeader: {
@@ -2205,7 +2420,6 @@ const styles = StyleSheet.create({
   postModalImage: {
     width: "100%",
     height: 370,
-    // backgroundColor: "#08050B",
     backgroundColor: "#121212",
   },
   postCaptionSection: {
@@ -2246,6 +2460,10 @@ const styles = StyleSheet.create({
     color: "#E8DDEA",
     fontSize: 11,
     fontWeight: "700",
+  },
+  likedEngagementText: {
+    color: PRIMARY,
+    fontWeight: "900",
   },
 
   // COMMENTS
@@ -2364,6 +2582,16 @@ const styles = StyleSheet.create({
   commentBubblePressed: {
     backgroundColor: "#2B1837",
     opacity: 0.85,
+  },
+  commentExpandButton: {
+    alignSelf: "flex-start",
+    paddingTop: 7,
+    paddingHorizontal: 2,
+  },
+  commentExpandText: {
+    color: PRIMARY,
+    fontSize: 11,
+    fontWeight: "800",
   },
   commentMeta: {
     flexDirection: "row",

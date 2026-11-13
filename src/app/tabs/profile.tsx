@@ -1272,7 +1272,10 @@ export default function Profile() {
       router.replace("/screens/Auth/login");
     } catch (error) {
       console.error("Sign out error:", error);
-
+      Alert.alert(
+        "Sign out warning",
+        "There was a problem clearing your session. Please try again.",
+      );
       try {
         await removeToken();
       } catch (tokenError) {
