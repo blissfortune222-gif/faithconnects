@@ -99,8 +99,8 @@ const styles = StyleSheet.create({
 
   brandName: {
     color: "#FFFFFF",
-    fontSize: 19,
-    fontWeight: "800",
+    fontSize: 15,
+    fontWeight: "700",
     letterSpacing: -0.8,
   },
 
@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
     marginLeft: 8,
   },
 

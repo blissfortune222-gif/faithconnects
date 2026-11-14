@@ -1,12 +1,21 @@
 import { SIGNUP_MUTATION } from "@/graphql/mutations/outh";
 import { saveToken } from "@/lib/apollo/auth";
 import { useMutation } from "@apollo/client/react";
+import {
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+  Manrope_700Bold,
+  Manrope_800ExtraBold,
+  useFonts,
+} from "@expo-google-fonts/manrope";
 import { AntDesign, Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useState } from "react";
+import * as Yup from "yup";
+
 import {
   ActivityIndicator,
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -17,10 +26,13 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import * as Yup from "yup";
 
-// Yup validation schema
+import { SafeAreaView } from "react-native-safe-area-context";
+
+/* =========================================================
+   VALIDATION
+   ========================================================= */
+
 const signupSchema = Yup.object({
   fullName: Yup.string()
     .trim()
@@ -48,6 +60,10 @@ type FormErrors = {
   confirmPassword?: string;
 };
 
+/* =========================================================
+   SIGNUP SCREEN
+   ========================================================= */
+
 export default function SignupScreen() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -58,16 +74,29 @@ export default function SignupScreen() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [errors, setErrors] = useState<FormErrors>({});
+  const [serverError, setServerError] = useState("");
+
+  const [fontsLoaded] = useFonts({
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
+    Manrope_800ExtraBold,
+  });
 
   const [signup, { loading }] = useMutation(SIGNUP_MUTATION);
 
-  // Update field and clear its validation error
+  /* =======================================================
+     FIELD HANDLING
+     ======================================================= */
+
   const updateField = (
     field: keyof FormErrors,
     value: string,
     setter: (value: string) => void,
   ) => {
     setter(value);
+    setServerError("");
 
     setErrors((previous) => ({
       ...previous,
@@ -76,7 +105,10 @@ export default function SignupScreen() {
     }));
   };
 
-  // Validate form with Yup
+  /* =======================================================
+     VALIDATION
+     ======================================================= */
+
   const validateForm = async () => {
     try {
       await signupSchema.validate(
@@ -108,9 +140,14 @@ export default function SignupScreen() {
     }
   };
 
-  // Signup handler
+  /* =======================================================
+     SIGNUP
+     ======================================================= */
+
   const handleSignup = async () => {
     if (loading) return;
+
+    setServerError("");
 
     const isValid = await validateForm();
 
@@ -140,12 +177,10 @@ export default function SignupScreen() {
         throw new Error("No authentication token was returned.");
       }
 
-      // Save authentication token
       await saveToken(data.signup.token);
 
       console.log("Signup successful:", data.signup.user);
 
-      // Navigate to interests
       router.replace("/screens/Interests/InterestsScreen");
     } catch (error: any) {
       console.error("========== SIGNUP ERROR ==========");
@@ -155,15 +190,40 @@ export default function SignupScreen() {
       console.error("Network error:", error?.networkError);
       console.error("==================================");
 
-      const message =
-        error?.graphQLErrors?.[0]?.message ||
-        error?.networkError?.message ||
-        error?.message ||
-        "Something went wrong while creating your account.";
+      let message =
+        "Something went wrong while creating your account. Please try again.";
 
-      Alert.alert("Signup Failed", message);
+      if (error?.graphQLErrors?.length) {
+        message = error.graphQLErrors
+          .map((item: any) => item.message)
+          .filter(Boolean)
+          .join("\n");
+      } else if (error?.networkError) {
+        message =
+          "Unable to connect to the server. Please check your internet connection and try again.";
+      } else if (error?.message) {
+        message = error.message;
+      }
+
+      setServerError(message);
     }
   };
+
+  /* =======================================================
+     FONT LOADING
+     ======================================================= */
+
+  if (!fontsLoaded) {
+    return (
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator size="large" color={PRIMARY} />
+      </View>
+    );
+  }
+
+  /* =======================================================
+     UI
+     ======================================================= */
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
@@ -174,43 +234,47 @@ export default function SignupScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.scrollContent}>
-          {/* Header */}
+          {/* HEADER */}
+
           <View style={styles.header}>
             <TouchableOpacity
               onPress={() => router.back()}
               disabled={loading}
-              style={styles.backButton}>
-              <Ionicons name="arrow-back" size={23} color={PURPLE} />
+              style={styles.backButton}
+              activeOpacity={0.7}>
+              <Ionicons name="arrow-back" size={21} color={TEXT} />
             </TouchableOpacity>
 
-            <Text style={styles.headerTitle}>Create Account</Text>
+            <Text style={styles.headerTitle}>Create account</Text>
 
             <View style={styles.headerSpacer} />
           </View>
 
-          {/* Logo */}
-          <Image
-            source={require("../../../../assets/images/appLogo.png")}
-            resizeMode="contain"
-            style={styles.image}
-          />
+          {/* BRANDING */}
 
-          <Text style={styles.heading}>Join our community</Text>
+          <View style={styles.brandSection}>
+            <Image
+              source={require("../../../../assets/images/FaithConnect.png")}
+              resizeMode="contain"
+              style={styles.image}
+            />
 
-          <Text style={styles.subtitle}>
-            Create an account to connect with people and build meaningful
-            relationships.
-          </Text>
+            <Text style={styles.subtitle}>
+              Join the community and start connecting with people.
+            </Text>
+          </View>
 
-          {/* Form */}
+          {/* FORM */}
+
           <View style={styles.form}>
-            {/* Full Name */}
-            <View>
-              <Text style={styles.label}>Full Name</Text>
+            {/* FULL NAME */}
+
+            <View style={styles.fieldContainer}>
+              <Text style={styles.label}>Full name</Text>
 
               <TextInput
                 placeholder="Enter your full name"
-                placeholderTextColor="#999"
+                placeholderTextColor={PLACEHOLDER}
                 style={[styles.input, errors.fullName && styles.inputError]}
                 value={fullName}
                 onChangeText={(value) =>
@@ -227,13 +291,14 @@ export default function SignupScreen() {
               )}
             </View>
 
-            {/* Email */}
-            <View>
-              <Text style={styles.label}>Email Address</Text>
+            {/* EMAIL */}
+
+            <View style={styles.fieldContainer}>
+              <Text style={styles.label}>Email address</Text>
 
               <TextInput
                 placeholder="Enter your email address"
-                placeholderTextColor="#999"
+                placeholderTextColor={PLACEHOLDER}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -252,8 +317,9 @@ export default function SignupScreen() {
               )}
             </View>
 
-            {/* Password */}
-            <View>
+            {/* PASSWORD */}
+
+            <View style={styles.fieldContainer}>
               <Text style={styles.label}>Password</Text>
 
               <View
@@ -263,7 +329,7 @@ export default function SignupScreen() {
                 ]}>
                 <TextInput
                   placeholder="Create a password"
-                  placeholderTextColor="#999"
+                  placeholderTextColor={PLACEHOLDER}
                   style={styles.passwordInput}
                   value={password}
                   onChangeText={(value) =>
@@ -283,11 +349,12 @@ export default function SignupScreen() {
                 <TouchableOpacity
                   onPress={() => setShowPassword((previous) => !previous)}
                   disabled={loading}
-                  style={styles.eyeButton}>
+                  style={styles.eyeButton}
+                  activeOpacity={0.7}>
                   <Ionicons
                     name={showPassword ? "eye-off-outline" : "eye-outline"}
-                    size={21}
-                    color="#777"
+                    size={20}
+                    color={MUTED}
                   />
                 </TouchableOpacity>
               </View>
@@ -297,9 +364,10 @@ export default function SignupScreen() {
               )}
             </View>
 
-            {/* Confirm Password */}
-            <View>
-              <Text style={styles.label}>Confirm Password</Text>
+            {/* CONFIRM PASSWORD */}
+
+            <View style={styles.fieldContainer}>
+              <Text style={styles.label}>Confirm password</Text>
 
               <View
                 style={[
@@ -308,7 +376,7 @@ export default function SignupScreen() {
                 ]}>
                 <TextInput
                   placeholder="Confirm your password"
-                  placeholderTextColor="#999"
+                  placeholderTextColor={PLACEHOLDER}
                   style={styles.passwordInput}
                   value={confirmPassword}
                   onChangeText={(value) =>
@@ -331,13 +399,14 @@ export default function SignupScreen() {
                     setShowConfirmPassword((previous) => !previous)
                   }
                   disabled={loading}
-                  style={styles.eyeButton}>
+                  style={styles.eyeButton}
+                  activeOpacity={0.7}>
                   <Ionicons
                     name={
                       showConfirmPassword ? "eye-off-outline" : "eye-outline"
                     }
-                    size={21}
-                    color="#777"
+                    size={20}
+                    color={MUTED}
                   />
                 </TouchableOpacity>
               </View>
@@ -348,35 +417,51 @@ export default function SignupScreen() {
             </View>
           </View>
 
-          {/* Create Account */}
+          {/* SERVER ERROR MESSAGE */}
+
+          {serverError ? (
+            <View style={styles.serverErrorContainer}>
+              <Ionicons name="alert-circle-outline" size={19} color={DANGER} />
+
+              <Text style={styles.serverErrorText}>{serverError}</Text>
+            </View>
+          ) : null}
+
+          {/* CREATE ACCOUNT */}
+
           <TouchableOpacity
             style={[styles.button, loading && styles.buttonDisabled]}
             onPress={handleSignup}
             disabled={loading}
             activeOpacity={0.85}>
             {loading ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Text style={styles.buttonText}>Create Account</Text>
+              <Text style={styles.buttonText}>Create account</Text>
             )}
           </TouchableOpacity>
 
-          {/* Login */}
+          {/* LOGIN */}
+
           <View style={styles.footer}>
             <Text style={styles.footerText}>Already have an account?</Text>
 
             <TouchableOpacity
               onPress={() => router.push("/screens/Auth/login")}
-              disabled={loading}>
-              <Text style={styles.login}> Log In</Text>
+              disabled={loading}
+              activeOpacity={0.7}>
+              <Text style={styles.login}> Log in</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Social Login */}
+          {/* SOCIAL LOGIN */}
+
           <View style={styles.socialSection}>
             <View style={styles.dividerContainer}>
               <View style={styles.divider} />
+
               <Text style={styles.orText}>OR CONTINUE WITH</Text>
+
               <View style={styles.divider} />
             </View>
 
@@ -385,14 +470,14 @@ export default function SignupScreen() {
                 style={styles.socialIcon}
                 disabled={loading}
                 activeOpacity={0.7}>
-                <AntDesign name="google" size={23} color="#DB4437" />
+                <AntDesign name="google" size={21} color="#B03333" />
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.socialIcon}
                 disabled={loading}
                 activeOpacity={0.7}>
-                <Ionicons name="call-outline" size={23} color="#34C759" />
+                <Ionicons name="call-outline" size={21} color="#218F28" />
               </TouchableOpacity>
             </View>
           </View>
@@ -402,13 +487,34 @@ export default function SignupScreen() {
   );
 }
 
+/* =========================================================
+   THEME
+   ========================================================= */
+
 const PRIMARY = "#FF4F9A";
-const PURPLE = "#8B5CF6";
+const BACKGROUND = "#000000fa";
+const CARD = "#19102F";
+const TEXT = "#FFFFFF";
+const MUTED = "#AFA7BF";
+const PLACEHOLDER = "#777087";
+const BORDER = "#302347";
+const DANGER = "#FF647C";
+
+/* =========================================================
+   STYLES
+   ========================================================= */
 
 const styles = StyleSheet.create({
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: BACKGROUND,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: BACKGROUND,
     paddingHorizontal: 24,
   },
 
@@ -421,153 +527,193 @@ const styles = StyleSheet.create({
     paddingBottom: 30,
   },
 
+  /* HEADER */
+
   header: {
-    marginTop: 10,
+    marginTop: 8,
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
   },
 
   backButton: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
     justifyContent: "center",
     alignItems: "flex-start",
   },
 
   headerTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#222",
+    fontFamily: "Manrope_700Bold",
+    fontSize: 16,
+    color: TEXT,
   },
 
   headerSpacer: {
-    width: 38,
+    width: 40,
+  },
+
+  /* BRANDING */
+
+  brandSection: {
+    alignItems: "center",
+    marginTop: 1,
+    marginBottom: 27,
   },
 
   image: {
-    width: "100%",
-    height: 190,
-    marginTop: 5,
-    marginBottom: 8,
-  },
-
-  heading: {
-    fontSize: 25,
-    fontWeight: "800",
-    color: "#21153A",
-    textAlign: "center",
+    width: 300,
+    height: 170,
+    marginBottom: 1,
   },
 
   subtitle: {
-    fontSize: 14,
-    color: "#888",
+    fontFamily: "Manrope_400Regular",
+    fontSize: 13,
+    color: MUTED,
     textAlign: "center",
-    lineHeight: 21,
-    marginTop: 7,
-    marginBottom: 25,
-    paddingHorizontal: 8,
+    lineHeight: 20,
+    paddingHorizontal: 12,
   },
 
+  /* FORM */
+
   form: {
-    gap: 17,
+    gap: 19,
+  },
+
+  fieldContainer: {
+    gap: 8,
   },
 
   label: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 8,
+    fontFamily: "Manrope_700Bold",
+    fontSize: 13,
+    color: "#E8E3F0",
   },
 
   input: {
-    height: 55,
-    backgroundColor: "#F7F6FA",
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    fontSize: 15,
-    color: "#222",
+    height: 52,
+    backgroundColor: CARD,
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    fontFamily: "Manrope_500Medium",
+    fontSize: 14,
+    color: TEXT,
     borderWidth: 1,
-    borderColor: "#F0EDF5",
+    borderColor: BORDER,
   },
 
+  /* PASSWORD INPUT */
+
   passwordContainer: {
-    height: 55,
-    backgroundColor: "#F7F6FA",
-    borderRadius: 14,
-    paddingHorizontal: 16,
+    height: 52,
+    backgroundColor: CARD,
+    borderRadius: 10,
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#F0EDF5",
+    borderColor: BORDER,
+    overflow: "hidden",
   },
 
   passwordInput: {
     flex: 1,
-    fontSize: 15,
-    color: "#222",
+    height: "100%",
+    fontFamily: "Manrope_500Medium",
+    fontSize: 14,
+    color: TEXT,
+    paddingHorizontal: 12,
     paddingVertical: 0,
+    margin: 0,
+    includeFontPadding: false,
   },
 
   eyeButton: {
-    padding: 5,
+    width: 42,
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 2,
   },
 
   inputError: {
-    borderColor: "#E53935",
+    borderColor: DANGER,
   },
 
   errorText: {
-    color: "#E53935",
-    fontSize: 12,
-    marginTop: 6,
-    marginLeft: 3,
+    fontFamily: "Manrope_500Medium",
+    fontSize: 11,
+    color: DANGER,
+    marginTop: 2,
   },
 
+  /* SERVER ERROR */
+
+  serverErrorContainer: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "rgba(255, 100, 124, 0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 100, 124, 0.35)",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginTop: 18,
+    gap: 9,
+  },
+
+  serverErrorText: {
+    flex: 1,
+    fontFamily: "Manrope_500Medium",
+    fontSize: 12,
+    color: DANGER,
+    lineHeight: 19,
+  },
+
+  /* CREATE ACCOUNT BUTTON */
+
   button: {
-    marginTop: 28,
-    height: 56,
-    borderRadius: 28,
+    marginTop: 26,
+    height: 52,
+    borderRadius: 10,
     backgroundColor: PRIMARY,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: PRIMARY,
-    shadowOffset: {
-      width: 0,
-      height: 5,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 4,
   },
 
   buttonDisabled: {
-    opacity: 0.7,
+    opacity: 0.65,
   },
 
   buttonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "700",
+    fontFamily: "Manrope_800ExtraBold",
+    color: "#FFFFFF",
+    fontSize: 15,
   },
+
+  /* LOGIN FOOTER */
 
   footer: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 24,
+    marginTop: 23,
   },
 
   footerText: {
-    color: "#777",
-    fontSize: 14,
+    fontFamily: "Manrope_400Regular",
+    color: MUTED,
+    fontSize: 13,
   },
 
   login: {
+    fontFamily: "Manrope_800ExtraBold",
     color: PRIMARY,
-    fontWeight: "700",
-    fontSize: 14,
+    fontSize: 13,
   },
+
+  /* SOCIAL SECTION */
 
   socialSection: {
     marginTop: 30,
@@ -582,31 +728,31 @@ const styles = StyleSheet.create({
   divider: {
     flex: 1,
     height: 1,
-    backgroundColor: "#EAE7EF",
+    backgroundColor: BORDER,
   },
 
   orText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#999",
-    letterSpacing: 1,
+    fontFamily: "Manrope_700Bold",
+    fontSize: 10,
+    color: MUTED,
+    letterSpacing: 0.7,
   },
 
   socialContainer: {
     flexDirection: "row",
     justifyContent: "center",
-    marginTop: 20,
-    gap: 18,
+    marginTop: 17,
+    gap: 14,
   },
 
   socialIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 16,
+    width: 48,
+    height: 46,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#EAE7EF",
+    borderColor: BORDER,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: CARD,
   },
 });

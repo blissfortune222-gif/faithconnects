@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const BACKGROUND = "#121212";
+const BACKGROUND = "#000000fa";
 const PRIMARY = "#FF4F9A";
 const TEXT = "#FFFFFF";
 const MUTED = "#858585";

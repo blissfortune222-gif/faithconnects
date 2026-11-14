@@ -23,8 +23,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 // ----------------------------------------------------
 
 const PRIMARY = "#FF4F9A";
-const BACKGROUND = "#121212";
-const CARD = "#191022";
+const BACKGROUND = "#000000fa";
+const CARD = "#000000fa";
 const CARD_LIGHT = "#23152F";
 const MUTED = "#A99AAF";
 const BORDER = "#30203B";
@@ -1823,11 +1823,11 @@ export default function SelectedUserPage() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#121212",
+    backgroundColor: "#000000fa",
   },
   centered: {
     flex: 1,
-    backgroundColor: "#121212",
+    backgroundColor: "#000000fa",
     justifyContent: "center",
     alignItems: "center",
     padding: 25,
@@ -2098,7 +2098,7 @@ const styles = StyleSheet.create({
   },
   textPost: {
     flex: 1,
-    backgroundColor: "#121212",
+    backgroundColor: "#000000fa",
     justifyContent: "center",
     alignItems: "center",
     padding: 10,
@@ -2343,12 +2343,12 @@ const styles = StyleSheet.create({
 
   fullPostScreen: {
     flex: 1,
-    backgroundColor: "#121212",
+    backgroundColor: "#000000fa",
     position: "relative",
   },
   postSafeArea: {
     flex: 1,
-    backgroundColor: "#121212",
+    backgroundColor: "#000000fa",
   },
   postModalHeader: {
     height: 54,
@@ -2420,7 +2420,7 @@ const styles = StyleSheet.create({
   postModalImage: {
     width: "100%",
     height: 370,
-    backgroundColor: "#121212",
+    backgroundColor: "#000000fa",
   },
   postCaptionSection: {
     paddingHorizontal: 16,
@@ -2471,8 +2471,9 @@ const styles = StyleSheet.create({
   commentsSection: {
     paddingHorizontal: 16,
     paddingTop: 19,
+    borderTopColor: BORDER,
     paddingBottom: 18,
-    backgroundColor: "#121212",
+    backgroundColor: "#000000fa",
   },
   commentsSectionHeader: {
     flexDirection: "row",

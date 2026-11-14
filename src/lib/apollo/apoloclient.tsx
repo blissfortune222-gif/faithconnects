@@ -5,9 +5,9 @@ import { setContext } from "@apollo/client/link/context";
 import { getToken } from "./auth";
 
 const httpLink = new HttpLink({
-  uri: "https://faithconnects-backend-1.onrender.com/graphql",
+  uri: "http://localhost:4000/graphql",
 });
-// http://localhost:4000/graphql
+
 const authLink = setContext(async (_, { headers }) => {
   const token = await getToken();
 

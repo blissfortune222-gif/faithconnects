@@ -37,7 +37,7 @@ type HomeScreenProps = {
 };
 
 const TAB_BAR_STYLE = {
-  backgroundColor: "#121212",
+  backgroundColor: "#000000fa",
   borderTopColor: "#252525",
   borderTopWidth: 1,
   height: 76,
@@ -145,7 +145,7 @@ export default function HomeScreen({ currentUserId }: HomeScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#121212",
+    backgroundColor: "#000000fa",
   },
 
   listContent: {

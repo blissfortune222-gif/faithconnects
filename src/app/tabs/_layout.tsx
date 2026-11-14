@@ -25,7 +25,7 @@ export default function TabsLayout() {
         },
 
         tabBarStyle: {
-          backgroundColor: "#121212",
+          backgroundColor: "#000000fa",
           borderTopColor: "#252525",
           borderTopWidth: 1,
           height: 76,
@@ -97,15 +97,6 @@ export default function TabsLayout() {
               color={color}
             />
           ),
-        }}
-      />
-
-      <Tabs.Screen
-        name="user/[userId]"
-        options={{
-          href: null,
-          headerShown: false,
-          tabBarStyle: { display: "none" },
         }}
       />
     </Tabs>

@@ -8,13 +8,13 @@ import {
   Manrope_800ExtraBold,
   useFonts,
 } from "@expo-google-fonts/manrope";
+import { AntDesign, Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useState } from "react";
 import * as Yup from "yup";
 
 import {
   ActivityIndicator,
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -26,7 +26,6 @@ import {
   View,
 } from "react-native";
 
-import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 /* =========================================================
@@ -133,7 +132,7 @@ type LoginErrors = {
 };
 
 /* =========================================================
-   YUP VALIDATION
+   VALIDATION
    ========================================================= */
 
 const loginSchema = Yup.object({
@@ -154,6 +153,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<LoginErrors>({});
+  const [serverError, setServerError] = useState("");
 
   const [fontsLoaded] = useFonts({
     Manrope_400Regular,
@@ -165,18 +165,19 @@ export default function LoginScreen() {
 
   const [login, { loading }] = useMutation<LoginResponse>(LOGIN_MUTATION);
 
-  /* =======================================================
+  /* =========================================================
      FIELD HANDLING
-     ======================================================= */
+     ========================================================= */
 
   const handleEmailChange = (value: string) => {
     const cleanedEmail = value.replace(/\s/g, "");
 
     setEmail(cleanedEmail);
+    setServerError("");
 
     if (errors.email) {
-      setErrors((prev) => ({
-        ...prev,
+      setErrors((previous) => ({
+        ...previous,
         email: undefined,
       }));
     }
@@ -186,18 +187,19 @@ export default function LoginScreen() {
     const cleanedPassword = value.replace(/\s/g, "");
 
     setPassword(cleanedPassword);
+    setServerError("");
 
     if (errors.password) {
-      setErrors((prev) => ({
-        ...prev,
+      setErrors((previous) => ({
+        ...previous,
         password: undefined,
       }));
     }
   };
 
-  /* =======================================================
+  /* =========================================================
      VALIDATE FORM
-     ======================================================= */
+     ========================================================= */
 
   const validateForm = async (): Promise<boolean> => {
     try {
@@ -227,12 +229,14 @@ export default function LoginScreen() {
     }
   };
 
-  /* =======================================================
+  /* =========================================================
      HANDLE LOGIN
-     ======================================================= */
+     ========================================================= */
 
   const handleLogin = async () => {
     if (loading) return;
+
+    setServerError("");
 
     const isValid = await validateForm();
 
@@ -241,7 +245,7 @@ export default function LoginScreen() {
     const cleanEmail = email.trim().toLowerCase();
 
     try {
-      console.log("LOGIN STARTED");
+      console.log("========== LOGIN STARTED ==========");
       console.log("Email:", cleanEmail);
 
       const { data } = await login({
@@ -254,9 +258,8 @@ export default function LoginScreen() {
       console.log("LOGIN RAW RESULT:", JSON.stringify(data));
 
       if (!data?.login?.token) {
-        Alert.alert(
-          "Login Failed",
-          "The server did not return an authentication token.",
+        setServerError(
+          "Login failed. The server did not return an authentication token. Please try again.",
         );
         return;
       }
@@ -271,26 +274,33 @@ export default function LoginScreen() {
 
       router.replace("/tabs/Main/mainPage");
     } catch (error: any) {
+      console.error("========== LOGIN ERROR ==========");
       console.error("LOGIN ERROR:", error);
+      console.error("MESSAGE:", error?.message);
+      console.error("GRAPHQL ERRORS:", error?.graphQLErrors);
+      console.error("NETWORK ERROR:", error?.networkError);
 
-      let message = "Something went wrong while logging in.";
+      let message = "Something went wrong while logging in. Please try again.";
 
       if (error?.graphQLErrors?.length) {
-        message = error.graphQLErrors.map((err: any) => err.message).join("\n");
+        message = error.graphQLErrors
+          .map((err: any) => err.message)
+          .filter(Boolean)
+          .join("\n");
       } else if (error?.networkError) {
         message =
-          "Unable to connect to the server. Please check your internet connection.";
+          "Unable to connect to the server. Please check your internet connection and try again.";
       } else if (error?.message) {
         message = error.message;
       }
 
-      Alert.alert("Login Failed", message);
+      setServerError(message);
     }
   };
 
-  /* =======================================================
+  /* =========================================================
      FONT LOADING
-     ======================================================= */
+     ========================================================= */
 
   if (!fontsLoaded) {
     return (
@@ -300,12 +310,12 @@ export default function LoginScreen() {
     );
   }
 
-  /* =======================================================
+  /* =========================================================
      UI
-     ======================================================= */
+     ========================================================= */
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <KeyboardAvoidingView
         style={styles.keyboardContainer}
         behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -319,25 +329,29 @@ export default function LoginScreen() {
             <TouchableOpacity
               onPress={() => router.back()}
               disabled={loading}
-              style={styles.backButton}>
-              <Ionicons name="arrow-back" size={25} color={PURPLE} />
+              style={styles.backButton}
+              activeOpacity={0.7}>
+              <Ionicons name="arrow-back" size={21} color={TEXT} />
             </TouchableOpacity>
 
-            <Text style={styles.headerTitle}>Welcome Back</Text>
+            <Text style={styles.headerTitle}>Login</Text>
 
             <View style={styles.headerSpacer} />
           </View>
-          {/* LOGO */}
 
-          <Image
-            source={require("../../../../assets/images/appLogo.png")}
-            resizeMode="contain"
-            style={styles.image}
-          />
+          {/* BRANDING */}
 
-          <Text style={styles.subtitle}>
-            Sign in to continue connecting with your community.
-          </Text>
+          <View style={styles.brandSection}>
+            <Image
+              source={require("../../../../assets/images/FaithConnect.png")}
+              resizeMode="contain"
+              style={styles.image}
+            />
+
+            <Text style={styles.subtitle}>
+              Sign in to continue connecting with your community.
+            </Text>
+          </View>
 
           {/* FORM */}
 
@@ -345,14 +359,15 @@ export default function LoginScreen() {
             {/* EMAIL */}
 
             <View style={styles.fieldContainer}>
-              <Text style={styles.label}>Email Address</Text>
+              <Text style={styles.label}>Email address</Text>
 
               <TextInput
                 placeholder="Enter your email address"
-                placeholderTextColor="#A0A0AA"
+                placeholderTextColor={PLACEHOLDER}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
+                spellCheck={false}
                 editable={!loading}
                 style={[styles.input, errors.email && styles.inputError]}
                 value={email}
@@ -377,7 +392,7 @@ export default function LoginScreen() {
                 ]}>
                 <TextInput
                   placeholder="Enter your password"
-                  placeholderTextColor="#A0A0AA"
+                  placeholderTextColor={PLACEHOLDER}
                   autoCapitalize="none"
                   autoCorrect={false}
                   editable={!loading}
@@ -390,12 +405,15 @@ export default function LoginScreen() {
                 />
 
                 <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
+                  onPress={() => setShowPassword((previous) => !previous)}
                   disabled={loading}
-                  style={styles.showButton}>
-                  <Text style={styles.showText}>
-                    {showPassword ? "Hide" : "Show"}
-                  </Text>
+                  style={styles.eyeButton}
+                  activeOpacity={0.7}>
+                  <Ionicons
+                    name={showPassword ? "eye-off-outline" : "eye-outline"}
+                    size={20}
+                    color={MUTED}
+                  />
                 </TouchableOpacity>
               </View>
 
@@ -405,15 +423,24 @@ export default function LoginScreen() {
             </View>
           </View>
 
+          {/* SERVER ERROR MESSAGE */}
+
+          {serverError ? (
+            <View style={styles.serverErrorContainer}>
+              <Ionicons name="alert-circle-outline" size={19} color={DANGER} />
+
+              <Text style={styles.serverErrorText}>{serverError}</Text>
+            </View>
+          ) : null}
+
           {/* FORGOT PASSWORD */}
 
           <TouchableOpacity
             style={styles.forgot}
             disabled={loading}
-            onPress={() => {
-              console.log("Forgot password pressed");
-            }}>
-            <Text style={styles.forgotText}>Forgot Password?</Text>
+            onPress={() => router.push("/screens/Auth/recoverPassword")}
+            activeOpacity={0.7}>
+            <Text style={styles.forgotText}>Forgot password?</Text>
           </TouchableOpacity>
 
           {/* LOGIN BUTTON */}
@@ -424,7 +451,7 @@ export default function LoginScreen() {
             disabled={loading}
             activeOpacity={0.85}>
             {loading ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
               <Text style={styles.buttonText}>Login</Text>
             )}
@@ -437,37 +464,42 @@ export default function LoginScreen() {
 
             <TouchableOpacity
               onPress={() => router.push("/screens/Auth/signUp")}
-              disabled={loading}>
+              disabled={loading}
+              activeOpacity={0.7}>
               <Text style={styles.signup}> Sign Up</Text>
             </TouchableOpacity>
           </View>
 
-          {/* DIVIDER */}
+          {/* SOCIAL DIVIDER */}
 
-          <View style={styles.dividerContainer}>
-            <View style={styles.divider} />
+          <View style={styles.socialSection}>
+            <View style={styles.dividerContainer}>
+              <View style={styles.divider} />
 
-            <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
+              <Text style={styles.orText}>OR CONTINUE WITH</Text>
 
-            <View style={styles.divider} />
-          </View>
+              <View style={styles.divider} />
+            </View>
 
-          {/* TEXT-ONLY SOCIAL OPTIONS */}
+            {/* GOOGLE AND PHONE ICONS */}
 
-          <View style={styles.socialContainer}>
-            <TouchableOpacity
-              style={styles.socialButton}
-              disabled={loading}
-              onPress={() => console.log("Google login pressed")}>
-              <Text style={styles.socialButtonText}>Google</Text>
-            </TouchableOpacity>
+            <View style={styles.socialContainer}>
+              <TouchableOpacity
+                style={styles.socialIcon}
+                disabled={loading}
+                activeOpacity={0.7}
+                onPress={() => console.log("Google login pressed")}>
+                <AntDesign name="google" size={21} color="#B03333" />
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.socialButton}
-              disabled={loading}
-              onPress={() => console.log("Phone login pressed")}>
-              <Text style={styles.socialButtonText}>Phone</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.socialIcon}
+                disabled={loading}
+                activeOpacity={0.7}
+                onPress={() => console.log("Phone login pressed")}>
+                <Ionicons name="call-outline" size={21} color="#218F28" />
+              </TouchableOpacity>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -476,11 +508,17 @@ export default function LoginScreen() {
 }
 
 /* =========================================================
-   COLORS
+   THEME
    ========================================================= */
 
 const PRIMARY = "#FF4F9A";
-const PURPLE = "#8B5CF6";
+const BACKGROUND = "#000000fa";
+const CARD = "#19102F";
+const TEXT = "#FFFFFF";
+const MUTED = "#AFA7BF";
+const PLACEHOLDER = "#777087";
+const BORDER = "#302347";
+const DANGER = "#FF647C";
 
 /* =========================================================
    STYLES
@@ -489,14 +527,15 @@ const PURPLE = "#8B5CF6";
 const styles = StyleSheet.create({
   loadingScreen: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: BACKGROUND,
     justifyContent: "center",
     alignItems: "center",
   },
 
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: BACKGROUND,
+    paddingHorizontal: 24,
   },
 
   keyboardContainer: {
@@ -505,91 +544,97 @@ const styles = StyleSheet.create({
 
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 25,
-    paddingBottom: 35,
+    paddingBottom: 30,
   },
 
+  /* HEADER */
+
   header: {
-    marginTop: 17,
+    marginTop: 8,
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
   },
 
   backButton: {
-    width: 45,
+    width: 40,
     height: 40,
     justifyContent: "center",
-  },
-
-  backText: {
-    fontFamily: "Manrope_600SemiBold",
-    fontSize: 14,
-    color: PURPLE,
+    alignItems: "flex-start",
   },
 
   headerTitle: {
-    fontFamily: "Manrope_800ExtraBold",
-    fontSize: 21,
-    color: "#222222",
-    letterSpacing: -0.6,
+    fontFamily: "Manrope_700Bold",
+    fontSize: 16,
+    color: TEXT,
   },
 
   headerSpacer: {
-    width: 45,
+    width: 40,
+  },
+
+  /* BRANDING */
+
+  brandSection: {
+    alignItems: "center",
+    marginTop: 14,
+    marginBottom: 30,
   },
 
   image: {
-    width: "100%",
-    height: 220,
-    marginTop: 15,
-    marginBottom: 5,
+    width: 300,
+    height: 170,
+    marginBottom: 1,
   },
 
   subtitle: {
     fontFamily: "Manrope_400Regular",
     fontSize: 13,
-    color: "#85858F",
+    color: MUTED,
     textAlign: "center",
-    marginBottom: 30,
-    lineHeight: 22,
+    lineHeight: 20,
+    paddingHorizontal: 12,
   },
 
+  /* FORM */
+
   form: {
-    gap: 20,
+    gap: 19,
   },
 
   fieldContainer: {
-    gap: 9,
+    gap: 8,
   },
 
   label: {
     fontFamily: "Manrope_700Bold",
     fontSize: 13,
-    color: "#30303A",
+    color: "#E8E3F0",
   },
 
   input: {
-    height: 57,
-    backgroundColor: "#F7F7FA",
-    borderRadius: 14,
-    paddingHorizontal: 17,
+    height: 52,
+    backgroundColor: CARD,
+    borderRadius: 10,
+    paddingHorizontal: 15,
     fontFamily: "Manrope_500Medium",
     fontSize: 14,
-    color: "#222222",
+    color: TEXT,
     borderWidth: 1,
-    borderColor: "#EEEEF2",
+    borderColor: BORDER,
   },
 
+  /* PASSWORD */
+
   passwordContainer: {
-    height: 57,
-    backgroundColor: "#F7F7FA",
-    borderRadius: 14,
-    paddingHorizontal: 17,
+    height: 52,
+    backgroundColor: CARD,
+    borderRadius: 10,
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#EEEEF2",
+    borderColor: BORDER,
+    overflow: "hidden",
   },
 
   passwordInput: {
@@ -597,34 +642,60 @@ const styles = StyleSheet.create({
     height: "100%",
     fontFamily: "Manrope_500Medium",
     fontSize: 14,
-    color: "#222222",
+    color: TEXT,
+    paddingHorizontal: 12,
+    paddingVertical: 0,
+    margin: 0,
+    includeFontPadding: false,
   },
 
-  showButton: {
-    paddingVertical: 10,
-    paddingLeft: 12,
-  },
-
-  showText: {
-    fontFamily: "Manrope_700Bold",
-    fontSize: 12,
-    color: PURPLE,
+  eyeButton: {
+    width: 42,
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 2,
   },
 
   inputError: {
-    borderColor: "#E53935",
+    borderColor: DANGER,
   },
 
   errorText: {
     fontFamily: "Manrope_500Medium",
     fontSize: 11,
-    color: "#E53935",
-    marginTop: 1,
+    color: DANGER,
+    marginTop: 2,
   },
+
+  /* SERVER ERROR */
+
+  serverErrorContainer: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "rgba(255, 100, 124, 0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 100, 124, 0.35)",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginTop: 18,
+    gap: 9,
+  },
+
+  serverErrorText: {
+    flex: 1,
+    fontFamily: "Manrope_500Medium",
+    fontSize: 12,
+    color: DANGER,
+    lineHeight: 19,
+  },
+
+  /* FORGOT PASSWORD */
 
   forgot: {
     alignItems: "flex-end",
-    marginTop: 16,
+    marginTop: 15,
   },
 
   forgotText: {
@@ -633,43 +704,39 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
+  /* LOGIN BUTTON */
+
   button: {
-    marginTop: 27,
-    height: 56,
-    borderRadius: 16,
+    marginTop: 26,
+    height: 52,
+    borderRadius: 10,
     backgroundColor: PRIMARY,
     justifyContent: "center",
     alignItems: "center",
-    elevation: 3,
-    shadowColor: PRIMARY,
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
   },
 
   buttonDisabled: {
-    opacity: 0.7,
+    opacity: 0.65,
   },
 
   buttonText: {
     fontFamily: "Manrope_800ExtraBold",
     color: "#FFFFFF",
     fontSize: 15,
-    letterSpacing: 0.3,
   },
+
+  /* SIGNUP FOOTER */
 
   footer: {
     flexDirection: "row",
     justifyContent: "center",
-    marginTop: 27,
+    alignItems: "center",
+    marginTop: 23,
   },
 
   footerText: {
     fontFamily: "Manrope_400Regular",
-    color: "#777780",
+    color: MUTED,
     fontSize: 13,
   },
 
@@ -679,47 +746,46 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
+  /* SOCIAL SECTION */
+
+  socialSection: {
+    marginTop: 30,
+  },
+
   dividerContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 34,
-    gap: 13,
+    gap: 12,
   },
 
   divider: {
     flex: 1,
     height: 1,
-    backgroundColor: "#EEEEF2",
+    backgroundColor: BORDER,
   },
 
-  dividerText: {
+  orText: {
     fontFamily: "Manrope_700Bold",
-    color: "#9999A2",
     fontSize: 10,
-    letterSpacing: 1,
+    color: MUTED,
+    letterSpacing: 0.7,
   },
 
   socialContainer: {
     flexDirection: "row",
     justifyContent: "center",
-    marginTop: 23,
+    marginTop: 17,
     gap: 14,
   },
 
-  socialButton: {
-    flex: 1,
-    height: 50,
-    borderRadius: 14,
+  socialIcon: {
+    width: 48,
+    height: 46,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#E8E8EF",
+    borderColor: BORDER,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
-  },
-
-  socialButtonText: {
-    fontFamily: "Manrope_700Bold",
-    fontSize: 13,
-    color: "#454550",
+    backgroundColor: CARD,
   },
 });

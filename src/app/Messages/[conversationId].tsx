@@ -675,7 +675,7 @@ const styles = StyleSheet.create({
 
   container: {
     flex: 1,
-    backgroundColor: "#121212",
+    backgroundColor: "#000000fa",
   },
 
   loadingContainer: {
@@ -982,7 +982,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderTopWidth: 2,
     borderTopColor: "#3a1b38",
-    backgroundColor: "#121212",
+    backgroundColor: "#000000fa",
   },
 
   composerAction: {

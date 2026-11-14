@@ -286,7 +286,7 @@ export default function Feed({ currentUserId }: FeedProps) {
       tabsHidden.current = false;
       navigation.setOptions({
         tabBarStyle: {
-          backgroundColor: "#121212",
+          backgroundColor: "#000000fa",
           borderTopColor: "#252525",
           borderTopWidth: 1,
           height: 76,
