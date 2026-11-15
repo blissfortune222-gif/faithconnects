@@ -1547,7 +1547,7 @@ export default function Feed({ currentUserId }: FeedProps) {
 const styles = StyleSheet.create({
   listContent: { paddingTop: 2, paddingBottom: 40 },
   card: {
-    marginTop: 7,
+    marginTop: 4,
     backgroundColor: "#212121",
     borderRadius: 2,
     overflow: "hidden",

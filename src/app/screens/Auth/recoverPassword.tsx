@@ -694,7 +694,7 @@ export default function RecoverPassword() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
           {/* HEADER */}
-
+          {/* 
           <View style={styles.header}>
             <TouchableOpacity
               onPress={() => router.back()}
@@ -706,7 +706,7 @@ export default function RecoverPassword() {
             <Text style={styles.headerTitle}>Recover Password</Text>
 
             <View style={styles.headerSpacer} />
-          </View>
+          </View> */}
 
           {/* BRANDING */}
 
@@ -791,7 +791,6 @@ export default function RecoverPassword() {
             ) : (
               <>
                 <Text style={styles.buttonText}>Continue</Text>
-                <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
               </>
             )}
           </TouchableOpacity>
@@ -923,11 +922,11 @@ export default function RecoverPassword() {
                   ) : (
                     <>
                       <Text style={styles.buttonText}>Verify code</Text>
-                      <Ionicons
+                      {/* <Ionicons
                         name="arrow-forward"
                         size={18}
                         color="#FFFFFF"
-                      />
+                      /> */}
                     </>
                   )}
                 </TouchableOpacity>
@@ -1054,11 +1053,11 @@ export default function RecoverPassword() {
                   ) : (
                     <>
                       <Text style={styles.buttonText}>Reset password</Text>
-                      <Ionicons
+                      {/* <Ionicons
                         name="checkmark-circle-outline"
                         size={19}
                         color="#FFFFFF"
-                      />
+                      /> */}
                     </>
                   )}
                 </TouchableOpacity>

@@ -183,12 +183,12 @@ export default function SignupScreen() {
 
       router.replace("/screens/Interests/InterestsScreen");
     } catch (error: any) {
-      console.error("========== SIGNUP ERROR ==========");
-      console.error("Error:", error);
-      console.error("Message:", error?.message);
-      console.error("GraphQL errors:", error?.graphQLErrors);
-      console.error("Network error:", error?.networkError);
-      console.error("==================================");
+      // console.error("========== SIGNUP ERROR ==========");
+      // console.error("Error:", error);
+      // console.error("Message:", error?.message);
+      // console.error("GraphQL errors:", error?.graphQLErrors);
+      // console.error("Network error:", error?.networkError);
+      // console.error("==================================");
 
       let message =
         "Something went wrong while creating your account. Please try again.";
@@ -236,7 +236,7 @@ export default function SignupScreen() {
           contentContainerStyle={styles.scrollContent}>
           {/* HEADER */}
 
-          <View style={styles.header}>
+          {/* <View style={styles.header}>
             <TouchableOpacity
               onPress={() => router.back()}
               disabled={loading}
@@ -248,7 +248,7 @@ export default function SignupScreen() {
             <Text style={styles.headerTitle}>Create account</Text>
 
             <View style={styles.headerSpacer} />
-          </View>
+          </View> */}
 
           {/* BRANDING */}
 

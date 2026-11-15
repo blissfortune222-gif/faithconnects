@@ -274,11 +274,11 @@ export default function LoginScreen() {
 
       router.replace("/tabs/Main/mainPage");
     } catch (error: any) {
-      console.error("========== LOGIN ERROR ==========");
-      console.error("LOGIN ERROR:", error);
-      console.error("MESSAGE:", error?.message);
-      console.error("GRAPHQL ERRORS:", error?.graphQLErrors);
-      console.error("NETWORK ERROR:", error?.networkError);
+      // console.error("========== LOGIN ERROR ==========");
+      // console.error("LOGIN ERROR:", error);
+      // console.error("MESSAGE:", error?.message);
+      // console.error("GRAPHQL ERRORS:", error?.graphQLErrors);
+      // console.error("NETWORK ERROR:", error?.networkError);
 
       let message = "Something went wrong while logging in. Please try again.";
 
@@ -324,7 +324,7 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
           {/* HEADER */}
-
+          {/* 
           <View style={styles.header}>
             <TouchableOpacity
               onPress={() => router.back()}
@@ -337,7 +337,7 @@ export default function LoginScreen() {
             <Text style={styles.headerTitle}>Login</Text>
 
             <View style={styles.headerSpacer} />
-          </View>
+          </View> */}
 
           {/* BRANDING */}
 

@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Animated,
   FlatList,
   Image,
@@ -17,72 +19,47 @@ const BACKGROUND = "#0F0623";
 const STORY_DURATION = 6000;
 const STORY_EXPIRY = 24 * 60 * 60 * 1000;
 
-const STORIES = [
+const MY_AVATAR = "https://i.pravatar.cc/300?img=68";
+
+type Story = {
+  id: string;
+  name: string;
+  image: string;
+  storyImage: string;
+  createdAt: number;
+  isMine?: boolean;
+  seen?: boolean;
+};
+
+// Only one dummy story.
+const INITIAL_STORIES: Story[] = [
   {
-    id: "1",
+    id: "dummy-1",
     name: "Sarah",
     image: "https://i.pravatar.cc/300?img=47",
     storyImage: "https://picsum.photos/id/1011/600/1000",
+    createdAt: Date.now(),
     seen: false,
-    createdAt: Date.now(),
-  },
-  {
-    id: "2",
-    name: "David",
-    image: "https://i.pravatar.cc/300?img=12",
-    storyImage: "https://picsum.photos/id/1012/600/1000",
-    seen: false,
-    createdAt: Date.now(),
-  },
-  {
-    id: "3",
-    name: "Grace",
-    image: "https://i.pravatar.cc/300?img=44",
-    storyImage: "https://picsum.photos/id/1015/600/1000",
-    seen: true,
-    createdAt: Date.now(),
-  },
-  {
-    id: "4",
-    name: "Michael",
-    image: "https://i.pravatar.cc/300?img=11",
-    storyImage: "https://picsum.photos/id/1016/600/1000",
-    seen: false,
-    createdAt: Date.now(),
-  },
-  {
-    id: "5",
-    name: "Jessica",
-    image: "https://i.pravatar.cc/300?img=49",
-    storyImage: "https://picsum.photos/id/1025/600/1000",
-    seen: false,
-    createdAt: Date.now(),
-  },
-  {
-    id: "6",
-    name: "Daniel",
-    image: "https://i.pravatar.cc/300?img=13",
-    storyImage: "https://picsum.photos/id/1035/600/1000",
-    seen: true,
-    createdAt: Date.now(),
   },
 ];
 
-type Story = (typeof STORIES)[number];
-
 export default function Trending() {
+  const [stories, setStories] = useState<Story[]>(INITIAL_STORIES);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [seenStories, setSeenStories] = useState<string[]>([]);
+  const [uploadingStory, setUploadingStory] = useState(false);
 
   const progress = useRef(new Animated.Value(0)).current;
 
-  // Only show stories that have not expired.
-  const availableStories = STORIES.filter(
+  const availableStories = stories.filter(
     (story) => Date.now() - story.createdAt < STORY_EXPIRY,
   );
 
   const selectedStory =
-    selectedIndex !== null ? availableStories[selectedIndex] : null;
+    selectedIndex !== null ? (availableStories[selectedIndex] ?? null) : null;
+
+  const myStories = availableStories.filter((story) => story.isMine);
+  const otherStories = availableStories.filter((story) => !story.isMine);
 
   const markAsSeen = (story: Story) => {
     setSeenStories((previous) =>
@@ -91,9 +68,9 @@ export default function Trending() {
   };
 
   const closeStory = () => {
-    setSelectedIndex(null);
     progress.stopAnimation();
     progress.setValue(0);
+    setSelectedIndex(null);
   };
 
   const openStory = (story: Story) => {
@@ -103,6 +80,69 @@ export default function Trending() {
 
     markAsSeen(story);
     setSelectedIndex(index);
+  };
+
+  // PICK IMAGE FROM GALLERY
+  const pickStory = async () => {
+    if (uploadingStory) return;
+
+    try {
+      setUploadingStory(true);
+
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert(
+          "Permission required",
+          "Please allow gallery access to add a story.",
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 0.9,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      const asset = result.assets[0];
+
+      console.log("📸 SELECTED STORY IMAGE:", asset.uri);
+
+      const newStory: Story = {
+        id: `my-story-${Date.now()}`,
+        name: "You",
+        image: MY_AVATAR,
+        storyImage: asset.uri,
+        createdAt: Date.now(),
+        isMine: true,
+        seen: false,
+      };
+
+      setStories((previous) => [
+        ...previous.filter((story) => !story.isMine),
+        newStory,
+      ]);
+
+      setSeenStories((previous) => previous.filter((id) => id !== newStory.id));
+
+      console.log("✅ STORY ADDED:", newStory);
+
+      // Open the newly selected story.
+      setSelectedIndex(availableStories.length);
+    } catch (error) {
+      console.error("❌ STORY PICKER ERROR:", error);
+
+      Alert.alert(
+        "Error",
+        "Could not select your story image. Please try again.",
+      );
+    } finally {
+      setUploadingStory(false);
+    }
   };
 
   const nextStory = () => {
@@ -124,6 +164,7 @@ export default function Trending() {
 
     if (selectedIndex > 0) {
       const previousIndex = selectedIndex - 1;
+
       markAsSeen(availableStories[previousIndex]);
       setSelectedIndex(previousIndex);
     } else {
@@ -132,7 +173,7 @@ export default function Trending() {
     }
   };
 
-  // Automatically advance after six seconds.
+  // STORY TIMER
   useEffect(() => {
     if (selectedIndex === null || !selectedStory) return;
 
@@ -168,7 +209,7 @@ export default function Trending() {
     <View style={styles.container}>
       <FlatList
         horizontal
-        data={availableStories}
+        data={otherStories}
         keyExtractor={(item) => item.id}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.list}
@@ -177,23 +218,36 @@ export default function Trending() {
             style={styles.storyItem}
             activeOpacity={0.85}
             onPress={() => {
-              // Connect your create-story screen here.
+              if (myStories.length > 0) {
+                openStory(myStories[0]);
+              } else {
+                pickStory();
+              }
             }}>
             <View style={styles.myStoryWrapper}>
               <Image
                 source={{
-                  uri: "https://i.pravatar.cc/300?img=68",
+                  uri: myStories[0]?.storyImage || MY_AVATAR,
                 }}
                 style={styles.storyImage}
+                resizeMode="cover"
               />
 
               <View style={styles.myStoryOverlay}>
                 <Text style={styles.myStoryText}>Your Story</Text>
               </View>
 
-              <View style={styles.addIcon}>
-                <Ionicons name="add" size={20} color="#FFFFFF" />
-              </View>
+              <Pressable
+                style={styles.addIcon}
+                onPress={pickStory}
+                disabled={uploadingStory}
+                hitSlop={8}>
+                <Ionicons
+                  name={uploadingStory ? "hourglass-outline" : "add"}
+                  size={20}
+                  color="#FFFFFF"
+                />
+              </Pressable>
             </View>
           </TouchableOpacity>
         }
@@ -223,7 +277,7 @@ export default function Trending() {
         }}
       />
 
-      {/* STORY VIEWER */}
+      {/* FULL SCREEN STORY VIEWER */}
       <Modal
         visible={!!selectedStory}
         animationType="fade"
@@ -262,7 +316,10 @@ export default function Trending() {
 
                 <View style={styles.viewerUserInfo}>
                   <Text style={styles.viewerName}>{selectedStory.name}</Text>
-                  <Text style={styles.viewerTime}>Just now</Text>
+
+                  <Text style={styles.viewerTime}>
+                    {selectedStory.isMine ? "Your story" : "Just now"}
+                  </Text>
                 </View>
 
                 <Pressable onPress={closeStory} hitSlop={12}>
@@ -270,12 +327,13 @@ export default function Trending() {
                 </Pressable>
               </View>
 
-              {/* LEFT AND RIGHT TAP AREAS */}
+              {/* NAVIGATION */}
               <View style={styles.navigationAreas}>
                 <Pressable
                   style={styles.previousArea}
                   onPress={previousStory}
                 />
+
                 <Pressable style={styles.nextArea} onPress={nextStory} />
               </View>
 
@@ -315,13 +373,11 @@ const styles = StyleSheet.create({
     position: "relative",
   },
 
-  // Neutral ring for unviewed stories.
   unseenRing: {
     borderColor: "#E5E5E5",
     backgroundColor: "#E5E5E5",
   },
 
-  // Dark grey ring for viewed stories.
   seenRing: {
     borderColor: "#555555",
     backgroundColor: "#555555",
@@ -397,7 +453,6 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
 
-  // VIEWER
   viewer: {
     flex: 1,
     backgroundColor: "#000000",
