@@ -1,7 +1,8 @@
 import { ME_QUERY } from "@/graphql/queries/user";
 import { gql, useMutation, useQuery } from "@apollo/client";
 import { Ionicons } from "@expo/vector-icons";
-import { router, useNavigation } from "expo-router";
+import { router, useFocusEffect, useNavigation } from "expo-router";
+import { VideoView, useVideoPlayer } from "expo-video";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -15,16 +16,160 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const PRIMARY = "#FF4F9A";
 const PURPLE = "#8B5CF6";
+const BACKGROUND = "#212121";
+const TEXT = "#FFFFFF";
+const MUTED = "#AFA7BF";
+const BORDER = "#302347";
 const PAGE_SIZE = 20;
+
+const formatNumber = (value?: number) => {
+  const n = value ?? 0;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+};
+
+const isVideo = (type?: string, url?: string) => {
+  const t = String(type || "").toLowerCase();
+  if (t.includes("video") || t.startsWith("video/")) return true;
+  // Fallback: detect from URL extension / Cloudinary resource type
+  const u = String(url || "").toLowerCase();
+  if (
+    u.includes("/video/upload/") ||
+    u.includes(".mp4") ||
+    u.includes(".mov") ||
+    u.includes(".webm")
+  ) {
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Cloudinary transform that forces H.264 MP4 – fixes black screen + audio
+ * on many Android / Expo Go devices that can't decode HEVC.
+ */
+const getPlayableVideoUrl = (url: string, forFeed: boolean) => {
+  if (!url) return url;
+  if (!url.includes("cloudinary.com") || !url.includes("/upload/")) {
+    return url;
+  }
+  // Already transformed
+  if (url.includes("vc_h264") || url.includes("f_mp4")) return url;
+
+  // H.264 + reasonable size. Feed uses smaller width for speed.
+  const transform = forFeed
+    ? "f_mp4,vc_h264,q_auto:good,w_720,c_limit"
+    : "f_mp4,vc_h264,q_auto:good,w_1080,c_limit";
+
+  return url.replace("/upload/", `/upload/${transform}/`);
+};
+
+/**
+ * Video player – feed (muted) + full post viewer (sound + controls).
+ * Uses H.264 Cloudinary URL to avoid black-screen-with-audio on mobile.
+ */
+function FeedVideo({
+  uri,
+  forceMuted = false,
+  showControls = false,
+  onOpen,
+}: {
+  uri: string;
+  forceMuted?: boolean;
+  showControls?: boolean;
+  onOpen?: () => void;
+}) {
+  const playUri = getPlayableVideoUrl(uri, !showControls);
+
+  const player = useVideoPlayer(playUri, (instance) => {
+    instance.loop = true;
+    instance.muted = !showControls;
+  });
+
+  useEffect(() => {
+    try {
+      player.muted = showControls ? false : true;
+      if (forceMuted) player.muted = true;
+    } catch {}
+  }, [player, showControls, forceMuted]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      try {
+        // Small delay helps surface attach on Android / Expo Go
+        await new Promise((r) => setTimeout(r, 50));
+        if (cancelled) return;
+        await player.play();
+        if (!showControls) player.muted = true;
+      } catch {}
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [player, showControls]);
+
+  useEffect(() => {
+    const sub = player.addListener?.("statusChange", (payload: any) => {
+      const status = payload?.status ?? payload;
+      if (status === "readyToPlay" || status?.isLoaded) {
+        try {
+          player.play();
+          player.muted = showControls ? false : true;
+          if (forceMuted) player.muted = true;
+        } catch {}
+      }
+    });
+    return () => {
+      try {
+        sub?.remove?.();
+      } catch {}
+    };
+  }, [player, showControls, forceMuted]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        player.pause();
+        player.muted = true;
+      } catch {}
+    };
+  }, [player]);
+
+  return (
+    <View style={styles.postMedia} collapsable={false}>
+      <VideoView
+        player={player}
+        style={styles.videoSurface}
+        contentFit={showControls ? "contain" : "cover"}
+        nativeControls={showControls}
+        // Always none in feed so the overlay receives the tap
+        pointerEvents={showControls ? "auto" : "none"}
+      />
+      {/* Full-area tap target – must sit above VideoView with high zIndex */}
+      {!showControls && onOpen ? (
+        <Pressable
+          onPress={onOpen}
+          style={styles.videoTapOverlay}
+          android_disableSound
+        />
+      ) : null}
+    </View>
+  );
+}
 
 type Media = { url: string; type: string };
 
@@ -281,32 +426,40 @@ export default function Feed({ currentUserId }: FeedProps) {
   const lastScrollY = useRef(0);
   const tabsHidden = useRef(false);
 
-  const showTabs = () => {
-    if (tabsHidden.current) {
-      tabsHidden.current = false;
-      navigation.setOptions({
-        tabBarStyle: {
-          backgroundColor: "#000000fa",
-          borderTopColor: "#252525",
-          borderTopWidth: 1,
-          height: 76,
-          paddingTop: 8,
-          paddingBottom: 8,
-          elevation: 0,
-          shadowOpacity: 0,
-        },
-      });
-    }
+  const tabBarVisibleStyle = {
+    backgroundColor: "#000000fa",
+    borderTopColor: "#252525",
+    borderTopWidth: 1,
+    height: 76,
+    paddingTop: 8,
+    paddingBottom: 8,
+    elevation: 0,
+    shadowOpacity: 0,
   };
 
-  const hideTabs = () => {
+  const showTabs = useCallback(() => {
+    if (tabsHidden.current) {
+      tabsHidden.current = false;
+      navigation.setOptions({ tabBarStyle: tabBarVisibleStyle });
+    }
+  }, [navigation]);
+
+  const hideTabs = useCallback(() => {
     if (!tabsHidden.current) {
       tabsHidden.current = true;
-      navigation.setOptions({
-        tabBarStyle: { display: "none" },
-      });
+      navigation.setOptions({ tabBarStyle: { display: "none" } });
     }
-  };
+  }, [navigation]);
+
+  // Always restore tab bar when leaving this screen
+  useFocusEffect(
+    useCallback(() => {
+      showTabs();
+      return () => {
+        showTabs();
+      };
+    }, [showTabs]),
+  );
 
   const { data, loading, error, refetch, fetchMore, networkStatus } =
     useQuery<PostsResponse>(GET_POSTS, {
@@ -638,21 +791,65 @@ export default function Feed({ currentUserId }: FeedProps) {
     }
   }, [data?.posts, fetchMore, loading, networkStatus, updateHasMore]);
 
-  const openComments = (post: Post) => {
+  // Same behavior as Profile: open full post viewer (media + comments)
+  const openPostViewer = (post: Post) => {
     setSelectedPost(post);
     setCommentText("");
     setDeleteConfirmComment(null);
+    setCommentActionTarget(null);
+    setEditingComment(null);
+    setFullscreenImage(null);
     setCommentsVisible(true);
   };
 
-  const closeComments = () => {
-    if (deletingCommentId || commentLoading) return;
+  const handleShare = async (post: Post) => {
+    try {
+      const author =
+        post.author?.fullName || post.author?.username || "Someone";
+      const caption = post.caption?.trim() || "";
+      const mediaUrl = post.media?.[0]?.url || "";
+      const message = caption
+        ? `${author}: ${caption}${mediaUrl ? `\n\n${mediaUrl}` : ""}`
+        : mediaUrl
+          ? `Check out this post from ${author}\n\n${mediaUrl}`
+          : `Check out this post from ${author}`;
+
+      await Share.share(
+        Platform.OS === "ios"
+          ? {
+              message: caption ? `${author}: ${caption}` : `Post by ${author}`,
+              url: mediaUrl || undefined,
+            }
+          : {
+              message,
+              title: `Post by ${author}`,
+            },
+      );
+    } catch (err: unknown) {
+      // User cancelled share sheet – ignore
+      if (err && typeof err === "object" && "message" in err) {
+        const msg = String((err as any).message || "");
+        if (!msg.toLowerCase().includes("cancel")) {
+          Alert.alert("Share failed", "Could not open the share sheet.");
+        }
+      }
+    }
+  };
+
+  const closePostViewer = () => {
+    if (deletingCommentId || commentLoading || savingCommentEdit) return;
 
     setCommentsVisible(false);
     setSelectedPost(null);
     setCommentText("");
     setDeleteConfirmComment(null);
+    setCommentActionTarget(null);
+    setEditingComment(null);
   };
+
+  // Keep old names as aliases so existing handlers still work
+  const openComments = openPostViewer;
+  const closeComments = closePostViewer;
 
   const handleLike = async (post: Post) => {
     try {
@@ -872,55 +1069,45 @@ export default function Feed({ currentUserId }: FeedProps) {
 
   const renderPost = ({ item }: { item: Post }) => {
     const authorName = item.author?.fullName || item.author?.username || "User";
-    const username = item.author?.username;
     const avatar = item.author?.profileImage || "https://i.pravatar.cc/150";
     const mediaItems = Array.isArray(item.media) ? item.media : [];
     const caption = item.caption?.trim() ?? "";
     const captionExpanded = expandedCaptionIds.has(String(item.id));
     const captionCanExpand = caption.length > 140;
+
     return (
-      <View style={styles.card}>
-        <View style={styles.header}>
-          <View style={styles.userRow}>
-            <TouchableOpacity
-              onPress={() => openUserProfile(item.author?.id || item.authorId)}
-              activeOpacity={0.75}>
-              <Image source={{ uri: avatar }} style={styles.avatar} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.userInfo}
-              onPress={() => openUserProfile(item.author?.id || item.authorId)}
-              activeOpacity={0.75}>
-              <Text style={styles.name} numberOfLines={1}>
-                {authorName}
-              </Text>
-              {/* {!!username && (
-                <Text style={styles.postUsername} numberOfLines={1}>
-                  @{username}
-                </Text>
-              )} */}
-              <Text style={styles.time}>{formatTime(item.createdAt)}</Text>
-            </TouchableOpacity>
-          </View>
-
+      <View style={styles.postCard}>
+        {/* Header – same as Profile */}
+        <View style={styles.postHeader}>
+          <TouchableOpacity
+            onPress={() => openUserProfile(item.author?.id || item.authorId)}
+            activeOpacity={0.75}>
+            <Image source={{ uri: avatar }} style={styles.avatar} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.postAuthorInfo}
+            onPress={() => openUserProfile(item.author?.id || item.authorId)}
+            activeOpacity={0.75}>
+            <Text style={styles.postAuthorName} numberOfLines={1}>
+              {authorName}
+            </Text>
+            <Text style={styles.postDate}>{formatTime(item.createdAt)}</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.postMenuButton}
-            onPress={() => setPostMenuPost(item)}
-            accessibilityRole="button"
-            accessibilityLabel="Post options">
-            <Ionicons name="ellipsis-horizontal" size={21} color="#FFFFFF" />
+            onPress={() => setPostMenuPost(item)}>
+            <Ionicons name="ellipsis-horizontal" size={21} color={MUTED} />
           </TouchableOpacity>
         </View>
 
+        {/* Caption */}
         {!!caption && (
           <View style={styles.captionContainer}>
             <Text
-              style={styles.caption}
+              style={styles.postCaption}
               numberOfLines={captionExpanded ? undefined : 3}>
               {caption}
             </Text>
-
             {captionCanExpand && (
               <TouchableOpacity onPress={() => toggleCaption(String(item.id))}>
                 <Text style={styles.captionToggle}>
@@ -931,60 +1118,94 @@ export default function Feed({ currentUserId }: FeedProps) {
           </View>
         )}
 
-        {mediaItems.map((media, index) =>
-          media.type?.toLowerCase() === "image" ? (
-            <TouchableOpacity
-              key={`${item.id}-${index}`}
-              activeOpacity={0.92}
-              onPress={() =>
-                setFullscreenImage({
-                  uri: media.url,
-                  postId: String(item.id),
-                })
-              }>
-              <Image
-                source={{ uri: media.url }}
-                style={styles.postImage}
-                resizeMode="cover"
-              />
-            </TouchableOpacity>
-          ) : null,
+        {/* Media – tap opens full post (same as Profile) */}
+        {mediaItems.length > 0 && (
+          <View style={!caption ? { marginTop: 12 } : undefined}>
+            {mediaItems.map((media, index) => {
+              const key = `${item.id}-${index}`;
+              if (isVideo(media.type, media.url)) {
+                return (
+                  <FeedVideo
+                    key={key}
+                    uri={media.url}
+                    forceMuted={commentsVisible}
+                    onOpen={() => openPostViewer(item)}
+                  />
+                );
+              }
+              return (
+                <TouchableOpacity
+                  key={key}
+                  activeOpacity={0.95}
+                  onPress={() => openPostViewer(item)}>
+                  <Image
+                    source={{ uri: media.url }}
+                    style={styles.postMedia}
+                    resizeMode="cover"
+                  />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         )}
 
-        <View style={styles.actions}>
+        {/* Stats row – same as Profile */}
+        <View style={styles.postStats}>
+          <View style={styles.postStatsLeft}>
+            <View style={styles.likeBubble}>
+              <Ionicons name="heart" size={11} color="#FFFFFF" />
+            </View>
+            <Text style={styles.postStatsText}>
+              {formatNumber(item.likesCount)} likes
+            </Text>
+          </View>
+          <TouchableOpacity onPress={() => openPostViewer(item)}>
+            <Text style={styles.postStatsText}>
+              {formatNumber(item.commentsCount)} comments
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.postActionDivider} />
+
+        {/* Actions – icons + counts only */}
+        <View style={styles.postActions}>
           <TouchableOpacity
-            style={styles.action}
-            onPress={() => handleLike(item)}
-            activeOpacity={0.7}>
+            style={styles.postAction}
+            onPress={() => handleLike(item)}>
             <Ionicons
               name={item.isLiked ? "heart" : "heart-outline"}
-              size={25}
-              color={item.isLiked ? PRIMARY : "#FFFFFF"}
+              size={22}
+              color={item.isLiked ? PRIMARY : MUTED}
             />
-            <Text style={styles.actionText}>{item.likesCount}</Text>
+            <Text
+              style={[
+                styles.postActionCount,
+                item.isLiked && { color: PRIMARY },
+              ]}>
+              {formatNumber(item.likesCount)}
+            </Text>
           </TouchableOpacity>
-
           <TouchableOpacity
-            style={styles.action}
-            onPress={() => openComments(item)}
-            activeOpacity={0.7}>
-            <Ionicons name="chatbubble-outline" size={23} color="#FFFFFF" />
-            <Text style={styles.actionText}>{item.commentsCount}</Text>
+            style={styles.postAction}
+            onPress={() => openPostViewer(item)}>
+            <Ionicons name="chatbubble-outline" size={21} color={MUTED} />
+            <Text style={styles.postActionCount}>
+              {formatNumber(item.commentsCount)}
+            </Text>
           </TouchableOpacity>
-
-          <TouchableOpacity style={styles.action} activeOpacity={0.7}>
-            <Ionicons name="paper-plane-outline" size={23} color="#FFFFFF" />
-          </TouchableOpacity>
-
-          <View style={styles.actionSpacer} />
-
           <TouchableOpacity
-            onPress={() => handleSave(item)}
-            activeOpacity={0.7}>
+            style={styles.postAction}
+            onPress={() => void handleShare(item)}>
+            <Ionicons name="share-social-outline" size={21} color={MUTED} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.postAction}
+            onPress={() => handleSave(item)}>
             <Ionicons
               name={item.isSaved ? "bookmark" : "bookmark-outline"}
-              size={23}
-              color={item.isSaved ? PURPLE : "#FFFFFF"}
+              size={21}
+              color={item.isSaved ? PRIMARY : MUTED}
             />
           </TouchableOpacity>
         </View>
@@ -1018,21 +1239,19 @@ export default function Feed({ currentUserId }: FeedProps) {
     const currentY = event.nativeEvent.contentOffset.y;
     const difference = currentY - lastScrollY.current;
 
-    if (currentY <= 10) {
+    // Near top → always show tabs
+    if (currentY <= 16) {
       showTabs();
-    } else if (difference > 5) {
+    } else if (difference > 8) {
+      // Scrolling down → hide
       hideTabs();
-    } else if (difference < -5) {
+    } else if (difference < -8) {
+      // Scrolling up → show
       showTabs();
     }
 
     lastScrollY.current = currentY;
   };
-  // function handleFeedScroll(
-  //   event: NativeSyntheticEvent<NativeScrollEvent>,
-  // ): void {
-  //   throw new Error("Function not implemented.");
-  // }
 
   return (
     <>
@@ -1073,158 +1292,320 @@ export default function Feed({ currentUserId }: FeedProps) {
       <Modal
         visible={commentsVisible}
         animationType="slide"
-        transparent
-        onRequestClose={closeComments}>
-        <KeyboardAvoidingView
-          style={styles.modalContainer}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <View style={styles.commentsSheet}>
-            <View style={styles.sheetHandle} />
+        presentationStyle="fullScreen"
+        onRequestClose={closePostViewer}>
+        <SafeAreaView style={styles.viewerSafeArea}>
+          <View style={styles.viewerHeader}>
+            <TouchableOpacity
+              onPress={closePostViewer}
+              style={styles.viewerBackButton}>
+              <Ionicons name="arrow-back" size={23} color="#FFFFFF" />
+            </TouchableOpacity>
+            <Text style={styles.viewerHeaderTitle}>Post</Text>
+            <TouchableOpacity
+              onPress={() => selectedPost && setPostMenuPost(selectedPost)}
+              style={styles.viewerBackButton}>
+              <Ionicons name="ellipsis-horizontal" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
 
-            <View style={styles.commentsHeader}>
-              <View style={styles.commentsHeaderLeft}>
-                <Text style={styles.commentsTitle}>Comments</Text>
-                <Text style={styles.commentsSubtitle}>
-                  {comments.length}{" "}
-                  {comments.length === 1 ? "comment" : "comments"}
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={closeComments}
-                style={styles.closeButton}>
-                <Ionicons name="close" size={22} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}>
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: 16 }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}>
+              {selectedPost && (
+                <>
+                  {/* Author */}
+                  <View style={styles.viewerAuthor}>
+                    <TouchableOpacity
+                      onPress={() =>
+                        openUserProfile(
+                          selectedPost.author?.id || selectedPost.authorId,
+                        )
+                      }>
+                      <Image
+                        source={{
+                          uri:
+                            selectedPost.author?.profileImage ||
+                            "https://i.pravatar.cc/150",
+                        }}
+                        style={styles.avatar}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.userInfo}
+                      onPress={() =>
+                        openUserProfile(
+                          selectedPost.author?.id || selectedPost.authorId,
+                        )
+                      }>
+                      <Text style={styles.name} numberOfLines={1}>
+                        {selectedPost.author?.fullName ||
+                          selectedPost.author?.username ||
+                          "User"}
+                      </Text>
+                      <Text style={styles.time}>
+                        {formatTime(selectedPost.createdAt)}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
 
-            {commentsQueryLoading && !commentsData ? (
-              <View style={styles.commentsLoading}>
-                <ActivityIndicator size="large" color={PRIMARY} />
-                <Text style={styles.loadingText}>Loading comments...</Text>
-              </View>
-            ) : commentsError ? (
-              <View style={styles.commentsLoading}>
-                <Ionicons name="cloud-offline-outline" size={40} color="#777" />
-                <Text style={styles.errorText}>{commentsError.message}</Text>
-                <TouchableOpacity
-                  style={styles.retryButton}
-                  onPress={() => void refetchComments()}>
-                  <Text style={styles.retryText}>Try Again</Text>
-                </TouchableOpacity>
-              </View>
-            ) : comments.length === 0 ? (
-              <View style={styles.noComments}>
-                <View style={styles.emptyCommentIcon}>
-                  <Ionicons name="chatbubble-outline" size={28} color="#777" />
-                </View>
-                <Text style={styles.noCommentsTitle}>No comments yet</Text>
-                <Text style={styles.noCommentsText}>
-                  Start the conversation.
-                </Text>
-              </View>
-            ) : (
-              <ScrollView
-                style={styles.commentsList}
-                contentContainerStyle={styles.commentsListContent}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}>
-                {comments.map((comment) => {
-                  const name =
-                    comment.author?.fullName ||
-                    comment.author?.username ||
-                    "User";
-                  const username = comment.author?.username;
-                  const commentAvatar =
-                    comment.author?.profileImage || "https://i.pravatar.cc/150";
-                  const own = isCommentOwner(comment);
-                  const deleting = deletingCommentId === comment.id;
-                  const expanded = expandedCommentIds.has(String(comment.id));
+                  {/* Caption */}
+                  {!!selectedPost.caption?.trim() && (
+                    <Text style={styles.viewerCaption}>
+                      {selectedPost.caption.trim()}
+                    </Text>
+                  )}
 
-                  return (
-                    <View key={comment.id} style={styles.commentRow}>
+                  {/* Media – video with sound; images tappable for true fullscreen */}
+                  {(selectedPost.media ?? []).map((media, index) => {
+                    const key = `viewer-${selectedPost.id}-${index}`;
+                    if (isVideo(media.type, media.url)) {
+                      return (
+                        <FeedVideo
+                          key={key}
+                          uri={media.url}
+                          showControls={true}
+                          forceMuted={false}
+                        />
+                      );
+                    }
+                    return (
                       <TouchableOpacity
+                        key={key}
+                        activeOpacity={0.95}
                         onPress={() =>
-                          openUserProfile(
-                            comment.author?.id || comment.authorId,
-                          )
+                          setFullscreenImage({
+                            uri: media.url,
+                            postId: String(selectedPost.id),
+                          })
                         }>
                         <Image
-                          source={{ uri: commentAvatar }}
-                          style={styles.commentAvatar}
+                          source={{ uri: media.url }}
+                          style={styles.postMedia}
+                          resizeMode="cover"
                         />
                       </TouchableOpacity>
+                    );
+                  })}
 
-                      <Pressable
-                        onPress={() => handleCommentPress(comment)}
-                        onLongPress={() => handleCommentLongPress(comment)}
-                        delayLongPress={400}
-                        disabled={deleting}
-                        style={({ pressed }) => [
-                          styles.commentContent,
-                          pressed && own && styles.commentPressed,
+                  {/* Engagement – same as Profile */}
+                  <View style={styles.viewerEngagement}>
+                    <View style={styles.postStatsLeft}>
+                      <View style={styles.likeBubble}>
+                        <Ionicons name="heart" size={11} color="#FFFFFF" />
+                      </View>
+                      <Text style={styles.postStatsText}>
+                        {formatNumber(selectedPost.likesCount)} likes
+                      </Text>
+                    </View>
+                    <Text style={styles.postStatsText}>
+                      {formatNumber(selectedPost.commentsCount)} comments
+                    </Text>
+                  </View>
+
+                  <View style={styles.postActionDivider} />
+
+                  <View style={styles.postActions}>
+                    <TouchableOpacity
+                      style={styles.postAction}
+                      onPress={() => handleLike(selectedPost)}>
+                      <Ionicons
+                        name={selectedPost.isLiked ? "heart" : "heart-outline"}
+                        size={22}
+                        color={selectedPost.isLiked ? PRIMARY : MUTED}
+                      />
+                      <Text
+                        style={[
+                          styles.postActionCount,
+                          selectedPost.isLiked && { color: PRIMARY },
                         ]}>
-                        <View style={styles.commentHeaderRow}>
-                          <TouchableOpacity
-                            style={styles.commentAuthorBlock}
-                            onPress={() =>
-                              openUserProfile(
-                                comment.author?.id || comment.authorId,
-                              )
-                            }>
-                            <View style={styles.authorNameRow}>
-                              <Text
-                                style={styles.commentAuthor}
-                                numberOfLines={1}>
-                                {name}
-                              </Text>
-                              {own && (
-                                <View style={styles.youBadge}>
-                                  <Text style={styles.youBadgeText}>You</Text>
-                                </View>
-                              )}
-                            </View>
-                            {/* {!!username && (
+                        {formatNumber(selectedPost.likesCount)}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.postAction}>
+                      <Ionicons
+                        name="chatbubble-outline"
+                        size={21}
+                        color={PRIMARY}
+                      />
+                      <Text
+                        style={[styles.postActionCount, { color: PRIMARY }]}>
+                        {formatNumber(selectedPost.commentsCount)}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.postAction}
+                      onPress={() => void handleShare(selectedPost)}>
+                      <Ionicons
+                        name="share-social-outline"
+                        size={21}
+                        color={MUTED}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.postAction}
+                      onPress={() => handleSave(selectedPost)}>
+                      <Ionicons
+                        name={
+                          selectedPost.isSaved ? "bookmark" : "bookmark-outline"
+                        }
+                        size={21}
+                        color={selectedPost.isSaved ? PRIMARY : MUTED}
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.viewerCommentsHeading}>
+                    <Text style={styles.commentsTitle}>Comments</Text>
+                    <Text style={styles.commentsSubtitle}>
+                      {comments.length}{" "}
+                      {comments.length === 1 ? "comment" : "comments"}
+                    </Text>
+                  </View>
+                </>
+              )}
+
+              {commentsQueryLoading && !commentsData ? (
+                <View style={styles.commentsLoading}>
+                  <ActivityIndicator size="large" color={PRIMARY} />
+                  <Text style={styles.loadingText}>Loading comments...</Text>
+                </View>
+              ) : commentsError ? (
+                <View style={styles.commentsLoading}>
+                  <Ionicons
+                    name="cloud-offline-outline"
+                    size={40}
+                    color="#777"
+                  />
+                  <Text style={styles.errorText}>{commentsError.message}</Text>
+                  <TouchableOpacity
+                    style={styles.retryButton}
+                    onPress={() => void refetchComments()}>
+                    <Text style={styles.retryText}>Try Again</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : comments.length === 0 ? (
+                <View style={styles.noComments}>
+                  <View style={styles.emptyCommentIcon}>
+                    <Ionicons
+                      name="chatbubble-outline"
+                      size={28}
+                      color="#777"
+                    />
+                  </View>
+                  <Text style={styles.noCommentsTitle}>No comments yet</Text>
+                  <Text style={styles.noCommentsText}>
+                    Start the conversation.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.commentsListContent}>
+                  {comments.map((comment) => {
+                    const name =
+                      comment.author?.fullName ||
+                      comment.author?.username ||
+                      "User";
+                    const username = comment.author?.username;
+                    const commentAvatar =
+                      comment.author?.profileImage ||
+                      "https://i.pravatar.cc/150";
+                    const own = isCommentOwner(comment);
+                    const deleting = deletingCommentId === comment.id;
+                    const expanded = expandedCommentIds.has(String(comment.id));
+
+                    return (
+                      <View key={comment.id} style={styles.commentRow}>
+                        <TouchableOpacity
+                          onPress={() =>
+                            openUserProfile(
+                              comment.author?.id || comment.authorId,
+                            )
+                          }>
+                          <Image
+                            source={{ uri: commentAvatar }}
+                            style={styles.commentAvatar}
+                          />
+                        </TouchableOpacity>
+
+                        <Pressable
+                          onPress={() => handleCommentPress(comment)}
+                          onLongPress={() => handleCommentLongPress(comment)}
+                          delayLongPress={400}
+                          disabled={deleting}
+                          style={({ pressed }) => [
+                            styles.commentContent,
+                            pressed && own && styles.commentPressed,
+                          ]}>
+                          <View style={styles.commentHeaderRow}>
+                            <TouchableOpacity
+                              style={styles.commentAuthorBlock}
+                              onPress={() =>
+                                openUserProfile(
+                                  comment.author?.id || comment.authorId,
+                                )
+                              }>
+                              <View style={styles.authorNameRow}>
+                                <Text
+                                  style={styles.commentAuthor}
+                                  numberOfLines={1}>
+                                  {name}
+                                </Text>
+                                {own && (
+                                  <View style={styles.youBadge}>
+                                    <Text style={styles.youBadgeText}>You</Text>
+                                  </View>
+                                )}
+                              </View>
+                              {/* {!!username && (
                               <Text
                                 style={styles.commentUsername}
                                 numberOfLines={1}>
                                 @{username}
                               </Text>
                             )} */}
-                          </TouchableOpacity>
+                            </TouchableOpacity>
 
-                          <Text style={styles.commentTime}>
-                            {formatTime(comment.createdAt)}
-                          </Text>
-                        </View>
-
-                        <Text
-                          style={styles.commentText}
-                          numberOfLines={expanded ? undefined : 4}>
-                          {comment.text}
-                        </Text>
-
-                        {comment.text.length > 180 && (
-                          <TouchableOpacity
-                            onPress={() => toggleComment(String(comment.id))}>
-                            <Text style={styles.commentToggle}>
-                              {expanded ? "Show less" : "Show more"}
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-
-                        {deleting && (
-                          <View style={styles.deletingComment}>
-                            <ActivityIndicator size="small" color={PRIMARY} />
-                            <Text style={styles.deletingCommentText}>
-                              Deleting...
+                            <Text style={styles.commentTime}>
+                              {formatTime(comment.createdAt)}
                             </Text>
                           </View>
-                        )}
-                      </Pressable>
-                    </View>
-                  );
-                })}
-              </ScrollView>
-            )}
+
+                          <Text
+                            style={styles.commentText}
+                            numberOfLines={expanded ? undefined : 4}>
+                            {comment.text}
+                          </Text>
+
+                          {comment.text.length > 180 && (
+                            <TouchableOpacity
+                              onPress={() => toggleComment(String(comment.id))}>
+                              <Text style={styles.commentToggle}>
+                                {expanded ? "Show less" : "Show more"}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+
+                          {deleting && (
+                            <View style={styles.deletingComment}>
+                              <ActivityIndicator size="small" color={PRIMARY} />
+                              <Text style={styles.deletingCommentText}>
+                                Deleting...
+                              </Text>
+                            </View>
+                          )}
+                        </Pressable>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </ScrollView>
 
             <View style={styles.commentInputContainer}>
               <View style={styles.commentInputWrapper}>
@@ -1260,8 +1641,8 @@ export default function Feed({ currentUserId }: FeedProps) {
                 )}
               </TouchableOpacity>
             </View>
-          </View>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
       </Modal>
 
       <Modal
@@ -1332,7 +1713,9 @@ export default function Feed({ currentUserId }: FeedProps) {
         transparent
         animationType="fade"
         onRequestClose={() => setFullscreenImage(null)}>
-        <View style={styles.fullscreenOverlay}>
+        <Pressable
+          style={styles.fullscreenOverlay}
+          onPress={() => setFullscreenImage(null)}>
           <View style={styles.fullscreenTopBar}>
             <TouchableOpacity
               style={styles.fullscreenIconButton}
@@ -1343,7 +1726,9 @@ export default function Feed({ currentUserId }: FeedProps) {
             </TouchableOpacity>
           </View>
           {fullscreenImage && (
-            <Pressable style={styles.fullscreenImageArea}>
+            <Pressable
+              style={styles.fullscreenImageArea}
+              onPress={() => setFullscreenImage(null)}>
               <Image
                 source={{ uri: fullscreenImage.uri }}
                 style={styles.fullscreenImage}
@@ -1351,7 +1736,7 @@ export default function Feed({ currentUserId }: FeedProps) {
               />
             </Pressable>
           )}
-        </View>
+        </Pressable>
       </Modal>
 
       <Modal
@@ -1546,21 +1931,100 @@ export default function Feed({ currentUserId }: FeedProps) {
 
 const styles = StyleSheet.create({
   listContent: { paddingTop: 2, paddingBottom: 40 },
-  card: {
-    marginTop: 4,
-    backgroundColor: "#212121",
+  postCard: {
+    marginTop: 6,
+    backgroundColor: BACKGROUND,
     borderRadius: 2,
     overflow: "hidden",
-    // marginHorizontal: 3,
   },
-  header: {
+  postHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    padding: 14,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 10,
     gap: 10,
   },
-  userRow: { flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0 },
+  postAuthorInfo: { flex: 1, minWidth: 0 },
+  postAuthorName: {
+    color: TEXT,
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  postDate: { color: MUTED, fontSize: 12, marginTop: 2 },
+  postCaption: {
+    color: TEXT,
+    fontSize: 14,
+    lineHeight: 21,
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+  },
+  postMedia: {
+    width: "100%",
+    height: 430,
+    backgroundColor: "#111111",
+    overflow: "hidden",
+  },
+  videoSurface: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#111111",
+  },
+  postImage: {
+    width: "100%",
+    height: 430,
+    backgroundColor: "#111111",
+  },
+  postStats: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  postStatsLeft: { flexDirection: "row", alignItems: "center", gap: 7 },
+  likeBubble: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: PRIMARY,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  postStatsText: { color: MUTED, fontSize: 12 },
+  postActionDivider: {
+    height: 1,
+    backgroundColor: "#2a2a2a",
+    marginHorizontal: 14,
+  },
+  postActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    gap: 4,
+  },
+  postAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+  },
+  postActionText: { color: MUTED, fontSize: 13, fontWeight: "600" },
+  postActionCount: {
+    color: MUTED,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  videoTapOverlay: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 10,
+    elevation: 10,
+    backgroundColor: "transparent",
+  },
   avatar: {
     width: 42,
     height: 42,
@@ -1569,16 +2033,9 @@ const styles = StyleSheet.create({
   },
   userInfo: { marginLeft: 10, flex: 1, minWidth: 0 },
   name: {
-    color: "#FFFFFF",
+    color: TEXT,
     fontWeight: "700",
     fontSize: 15,
-    flexShrink: 1,
-    minWidth: 0,
-  },
-  postUsername: {
-    color: "#9690A6",
-    fontSize: 11,
-    marginTop: 1,
     flexShrink: 1,
     minWidth: 0,
   },
@@ -1589,6 +2046,47 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
     alignItems: "center",
     justifyContent: "center",
+  },
+  // legacy aliases kept so older style refs don't crash
+  card: {
+    marginTop: 4,
+    backgroundColor: BACKGROUND,
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 14,
+    gap: 10,
+  },
+  userRow: { flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0 },
+  postUsername: {
+    color: "#9690A6",
+    fontSize: 11,
+    marginTop: 1,
+  },
+  time: { color: MUTED, fontSize: 12, marginTop: 2 },
+  actions: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+  },
+  action: { flexDirection: "row", alignItems: "center", marginRight: 18 },
+  actionText: { color: TEXT, marginLeft: 5, fontWeight: "600" },
+  actionSpacer: { flex: 1 },
+  captionContainer: {
+    paddingHorizontal: 14,
+    paddingBottom: 8,
+  },
+  caption: { color: TEXT, lineHeight: 22, fontSize: 14 },
+  captionToggle: {
+    color: PRIMARY,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 4,
   },
   postMenuOverlay: {
     flex: 1,
@@ -1645,29 +2143,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   postMenuCancelText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
-  time: { color: "#888888", fontSize: 12, marginTop: 2 },
-  postImage: { width: "100%", height: 430, backgroundColor: "#222222" },
-  actions: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-  },
-  action: { flexDirection: "row", alignItems: "center", marginRight: 18 },
-  actionText: { color: "#FFFFFF", marginLeft: 5, fontWeight: "600" },
-  actionSpacer: { flex: 1 },
-  captionContainer: {
-    paddingHorizontal: 14,
-    paddingBottom: 12,
-    minWidth: 0,
-  },
-  caption: { color: "#FFFFFF", lineHeight: 22, fontSize: 14, flexShrink: 1 },
-  captionToggle: {
-    color: PRIMARY,
-    fontSize: 13,
-    fontWeight: "700",
-    marginTop: 4,
-  },
   center: {
     paddingVertical: 50,
     alignItems: "center",
@@ -1716,6 +2191,61 @@ const styles = StyleSheet.create({
   footerLoader: { paddingVertical: 20 },
   endOfFeed: { alignItems: "center", paddingVertical: 20 },
   endOfFeedText: { color: "#777777", fontSize: 12 },
+  viewerSafeArea: {
+    flex: 1,
+    backgroundColor: BACKGROUND,
+  },
+  viewerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
+  viewerBackButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  viewerHeaderTitle: {
+    color: TEXT,
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  viewerAuthor: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 8,
+    gap: 10,
+  },
+  viewerCaption: {
+    color: TEXT,
+    fontSize: 14,
+    lineHeight: 21,
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+  },
+  viewerEngagement: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  viewerCommentsHeading: {
+    paddingHorizontal: 14,
+    paddingTop: 16,
+    paddingBottom: 8,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+    marginTop: 8,
+  },
   modalContainer: {
     flex: 1,
     justifyContent: "flex-end",

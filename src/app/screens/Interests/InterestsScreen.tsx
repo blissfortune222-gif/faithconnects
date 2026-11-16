@@ -58,10 +58,11 @@ const COLORS = {
   border: "rgba(255,255,255,0.08)",
 };
 
-const CLOUDINARY_CLOUD_NAME = process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME;
+const CLOUDINARY_CLOUD_NAME =
+  process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME?.trim();
 
 const CLOUDINARY_UPLOAD_PRESET =
-  process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+  process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET?.trim();
 
 const INTERESTS = [
   "Music",
@@ -442,12 +443,17 @@ const uploadProfileImage = async (uri: string): Promise<string> => {
   console.log("[CLOUDINARY] Platform:", Platform.OS);
 
   if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_UPLOAD_PRESET) {
+    console.error("[CLOUDINARY] Configuration missing:", {
+      cloudNameConfigured: Boolean(CLOUDINARY_CLOUD_NAME),
+      presetConfigured: Boolean(CLOUDINARY_UPLOAD_PRESET),
+    });
+
     throw new Error(
-      "Cloudinary is not configured. Check your Expo environment variables.",
+      "Cloudinary is not configured. Check your Expo environment variables and restart Expo.",
     );
   }
 
-  if (uri.startsWith("https://") && uri.includes("res.cloudinary.com/")) {
+  if (isValidCloudinaryUrl(uri)) {
     console.log("[CLOUDINARY] Existing Cloudinary URL detected.");
     return uri;
   }
@@ -489,7 +495,13 @@ const uploadProfileImage = async (uri: string): Promise<string> => {
     },
   );
 
-  const result = await response.json();
+  let result: any;
+
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error("Cloudinary returned an invalid response.");
+  }
 
   console.log("[CLOUDINARY] HTTP status:", response.status);
   console.log("[CLOUDINARY] Response:", result);
@@ -524,10 +536,8 @@ export default function InterestScreen() {
   const [countrySearch, setCountrySearch] = useState("");
   const [showCountryPicker, setShowCountryPicker] = useState(false);
 
-  // Inline Yup errors for individual fields.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  // Bio and image intentionally have separate states and refs.
   const [bio, setBio] = useState("");
   const bioRef = useRef("");
 
@@ -535,6 +545,17 @@ export default function InterestScreen() {
   const profileImageRef = useRef<string | null>(null);
 
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
+
+  // Tracks the entire submission process, including Cloudinary upload.
+  const [submitting, setSubmitting] = useState(false);
+
+  // Tracks the current stage for the button label.
+  const [submissionStage, setSubmissionStage] = useState<
+    "validating" | "uploading" | "saving" | null
+  >(null);
+
+  // Prevents two submissions from starting before React re-renders.
+  const submissionLockRef = useRef(false);
 
   /* =======================================================
      CLEAR FIELD ERROR
@@ -596,44 +617,41 @@ export default function InterestScreen() {
      GRAPHQL
      ======================================================= */
 
-  const [updateProfile, { loading: saving }] = useMutation(
-    UPDATE_PROFILE_MUTATION,
-    {
-      onCompleted: (data) => {
-        console.log("========== GRAPHQL SUCCESS ==========");
-        console.log("[GRAPHQL] Returned data:", data);
-        console.log("[GRAPHQL] Updated user:", data?.updateProfile);
-        console.log("[GRAPHQL] Returned ID:", data?.updateProfile?.id);
-        console.log(
-          "[GRAPHQL] Returned username:",
-          data?.updateProfile?.username,
-        );
-        console.log("[GRAPHQL] Returned age:", data?.updateProfile?.age);
-        console.log("[GRAPHQL] Returned bio:", data?.updateProfile?.bio);
-        console.log(
-          "[GRAPHQL] Returned location:",
-          data?.updateProfile?.location,
-        );
-        console.log(
-          "[GRAPHQL] Returned image:",
-          data?.updateProfile?.profileImage,
-        );
-        console.log(
-          "[GRAPHQL] Returned interests:",
-          data?.updateProfile?.interests,
-        );
-        console.log("=====================================");
-      },
-      onError: (error) => {
-        console.error("========== GRAPHQL ERROR ==========");
-        console.error("[GRAPHQL] Message:", error.message);
-        console.error("[GRAPHQL] Network error:", error.networkError);
-        console.error("[GRAPHQL] GraphQL errors:", error.graphQLErrors);
-        console.error("[GRAPHQL] Full error:", error);
-        console.error("===================================");
-      },
+  const [updateProfile] = useMutation(UPDATE_PROFILE_MUTATION, {
+    onCompleted: (data) => {
+      console.log("========== GRAPHQL SUCCESS ==========");
+      console.log("[GRAPHQL] Returned data:", data);
+      console.log("[GRAPHQL] Updated user:", data?.updateProfile);
+      console.log("[GRAPHQL] Returned ID:", data?.updateProfile?.id);
+      console.log(
+        "[GRAPHQL] Returned username:",
+        data?.updateProfile?.username,
+      );
+      console.log("[GRAPHQL] Returned age:", data?.updateProfile?.age);
+      console.log("[GRAPHQL] Returned bio:", data?.updateProfile?.bio);
+      console.log(
+        "[GRAPHQL] Returned location:",
+        data?.updateProfile?.location,
+      );
+      console.log(
+        "[GRAPHQL] Returned image:",
+        data?.updateProfile?.profileImage,
+      );
+      console.log(
+        "[GRAPHQL] Returned interests:",
+        data?.updateProfile?.interests,
+      );
+      console.log("=====================================");
     },
-  );
+    onError: (error) => {
+      console.error("========== GRAPHQL ERROR ==========");
+      console.error("[GRAPHQL] Message:", error.message);
+      console.error("[GRAPHQL] Network error:", error.networkError);
+      console.error("[GRAPHQL] GraphQL errors:", error.graphQLErrors);
+      console.error("[GRAPHQL] Full error:", error);
+      console.error("===================================");
+    },
+  });
 
   const age = useMemo(
     () => (dateOfBirth ? calculateAge(dateOfBirth) : null),
@@ -666,6 +684,8 @@ export default function InterestScreen() {
      ======================================================= */
 
   const pickProfileImage = async () => {
+    if (submissionLockRef.current) return;
+
     try {
       console.log("[IMAGE PICKER] Opening picker.");
 
@@ -841,7 +861,12 @@ export default function InterestScreen() {
      ======================================================= */
 
   const handleContinue = async () => {
-    if (saving) return;
+    // Synchronous lock prevents multiple taps before React updates.
+    if (submissionLockRef.current) return;
+
+    submissionLockRef.current = true;
+    setSubmitting(true);
+    setSubmissionStage("validating");
 
     Keyboard.dismiss();
 
@@ -863,62 +888,57 @@ export default function InterestScreen() {
     });
 
     try {
-      await profileValidationSchema.validate(
-        {
-          username: cleanUsername,
-          age: calculatedAge,
-          location: country,
-          bio: cleanBio,
-          interests: selectedInterests,
-        },
-        {
-          abortEarly: false,
-          stripUnknown: true,
-        },
-      );
+      /* VALIDATION */
 
-      // Remove any old errors once all fields pass.
-      setFieldErrors({});
+      try {
+        await profileValidationSchema.validate(
+          {
+            username: cleanUsername,
+            age: calculatedAge,
+            location: country,
+            bio: cleanBio,
+            interests: selectedInterests,
+          },
+          {
+            abortEarly: false,
+            stripUnknown: true,
+          },
+        );
 
-      console.log("[YUP] All profile validations passed.");
-    } catch (validationError: any) {
-      if (validationError instanceof Yup.ValidationError) {
-        const errors = validationError.inner.length
-          ? validationError.inner
-          : [validationError];
+        setFieldErrors({});
 
-        const mappedErrors: Record<string, string> = {};
+        console.log("[YUP] All profile validations passed.");
+      } catch (validationError: any) {
+        if (validationError instanceof Yup.ValidationError) {
+          const errors = validationError.inner.length
+            ? validationError.inner
+            : [validationError];
 
-        errors.forEach((error) => {
-          if (error.path && !mappedErrors[error.path]) {
-            mappedErrors[error.path] = error.message;
-          }
-        });
+          const mappedErrors: Record<string, string> = {};
 
-        // console.error("[YUP] Validation failed:", mappedErrors);
-        // console.error("[YUP] Full validation errors:", errors);
+          errors.forEach((error) => {
+            if (error.path && !mappedErrors[error.path]) {
+              mappedErrors[error.path] = error.message;
+            }
+          });
 
-        // Display errors beneath their corresponding inputs.
-        setFieldErrors(mappedErrors);
+          setFieldErrors(mappedErrors);
 
-        return;
+          console.log("[YUP] Validation failed:", mappedErrors);
+
+          return;
+        }
+
+        throw validationError;
       }
 
-      console.error("[YUP] Unexpected validation error:", validationError);
+      /* CLOUDINARY IMAGE UPLOAD */
 
-      showMessage(
-        "Validation error",
-        validationError?.message || "Please check your profile details.",
-      );
-
-      return;
-    }
-
-    try {
       let uploadedProfileImage: string | undefined;
 
-      // Upload only the selected profile image.
       if (selectedProfileImage) {
+        setSubmissionStage("uploading");
+
         console.log("[SUBMISSION] Uploading selected profile image.");
 
         uploadedProfileImage = await uploadProfileImage(selectedProfileImage);
@@ -932,7 +952,8 @@ export default function InterestScreen() {
         console.log("[SUBMISSION] Cloudinary URL:", uploadedProfileImage);
       }
 
-      // Keep every field independent.
+      /* GRAPHQL INPUT */
+
       const input = {
         username: cleanUsername,
         age: Number(calculatedAge),
@@ -952,12 +973,17 @@ export default function InterestScreen() {
       console.log("[GRAPHQL] Complete variables:", { input });
       console.log("==============================================");
 
-      // Final independent field checks.
+      /* FINAL FIELD CHECKS */
+
       sanitizeBio(input.bio);
 
       if (input.profileImage && !isValidCloudinaryUrl(input.profileImage)) {
         throw new Error("Invalid profile image URL. Submission stopped.");
       }
+
+      /* GRAPHQL MUTATION */
+
+      setSubmissionStage("saving");
 
       console.log("[GRAPHQL] Sending updateProfile mutation...");
 
@@ -1010,6 +1036,11 @@ export default function InterestScreen() {
         error?.message || "Unable to update your profile. Please try again.",
       );
     } finally {
+      // Always unlock the button, even if validation/upload/mutation fails.
+      submissionLockRef.current = false;
+      setSubmitting(false);
+      setSubmissionStage(null);
+
       console.log("[SUBMISSION] Process finished.");
     }
   };
@@ -1024,6 +1055,15 @@ export default function InterestScreen() {
      UI
      ======================================================= */
 
+  const buttonLabel =
+    submissionStage === "validating"
+      ? "Checking details..."
+      : submissionStage === "uploading"
+        ? "Uploading photo..."
+        : submissionStage === "saving"
+          ? "Saving profile..."
+          : "Continue";
+
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <ScrollView
@@ -1037,7 +1077,13 @@ export default function InterestScreen() {
         {/* PROFILE IMAGE */}
 
         <View style={styles.avatarSection}>
-          <Pressable style={styles.avatarContainer} onPress={pickProfileImage}>
+          <Pressable
+            style={[
+              styles.avatarContainer,
+              submitting && styles.disabledButton,
+            ]}
+            onPress={pickProfileImage}
+            disabled={submitting}>
             {profileImage ? (
               <Image source={{ uri: profileImage }} style={styles.avatar} />
             ) : (
@@ -1078,6 +1124,7 @@ export default function InterestScreen() {
                 }}
                 autoCapitalize="none"
                 autoCorrect={false}
+                editable={!submitting}
               />
             </View>
 
@@ -1096,7 +1143,8 @@ export default function InterestScreen() {
                 styles.inputContainer,
                 fieldErrors.age && styles.inputErrorBorder,
               ]}
-              onPress={openDatePicker}>
+              onPress={openDatePicker}
+              disabled={submitting}>
               <Ionicons
                 name="calendar-outline"
                 size={19}
@@ -1139,6 +1187,7 @@ export default function InterestScreen() {
                 styles.inputContainer,
                 fieldErrors.location && styles.inputErrorBorder,
               ]}
+              disabled={submitting}
               onPress={() => {
                 Keyboard.dismiss();
                 setCountrySearch("");
@@ -1191,6 +1240,7 @@ export default function InterestScreen() {
                 textAlignVertical="top"
                 autoCorrect
                 autoCapitalize="sentences"
+                editable={!submitting}
               />
             </View>
 
@@ -1221,9 +1271,11 @@ export default function InterestScreen() {
                   <Pressable
                     key={interest}
                     onPress={() => toggleInterest(interest)}
+                    disabled={submitting}
                     style={[
                       styles.interestChip,
                       selected && styles.selectedInterestChip,
+                      submitting && styles.disabledChip,
                     ]}>
                     <Text
                       style={[
@@ -1258,11 +1310,15 @@ export default function InterestScreen() {
 
       <View style={styles.footer}>
         <Pressable
-          style={[styles.continueButton, saving && styles.disabledButton]}
+          style={[styles.continueButton, submitting && styles.disabledButton]}
           onPress={handleContinue}
-          disabled={saving}>
-          {saving ? (
-            <ActivityIndicator color={COLORS.white} />
+          disabled={submitting}>
+          {submitting ? (
+            <View style={styles.loadingContent}>
+              <ActivityIndicator size="small" color={COLORS.white} />
+
+              <Text style={styles.continueButtonText}>{buttonLabel}</Text>
+            </View>
           ) : (
             <Text style={styles.continueButtonText}>Continue</Text>
           )}
@@ -1646,6 +1702,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     borderColor: COLORS.primary,
   },
+  disabledChip: {
+    opacity: 0.65,
+  },
   interestText: {
     color: COLORS.muted,
     fontSize: 12,
@@ -1681,6 +1740,12 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 15,
     fontWeight: "800",
+  },
+  loadingContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
   },
   modalOverlay: {
     flex: 1,
